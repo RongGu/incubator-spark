@@ -68,14 +68,14 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
   }
 
   def receive = {
-    case RegisterBlockManager(blockManagerId, maxMemSize, slaveActor) =>
-      register(blockManagerId, maxMemSize, slaveActor)
+    case RegisterBlockManager(blockManagerId, maxMemSize, maxTachyonSize, slaveActor) =>
+      register(blockManagerId, maxMemSize, maxTachyonSize, slaveActor)
       sender ! true
 
-    case UpdateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size) =>
+    case UpdateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize) =>
       // TODO: Ideally we want to handle all the message replies in receive instead of in the
       // individual private methods.
-      updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size)
+      updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize)
 
     case GetLocations(blockId) =>
       sender ! getLocations(blockId)
@@ -222,7 +222,7 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
     }.toArray
   }
 
-  private def register(id: BlockManagerId, maxMemSize: Long, slaveActor: ActorRef) {
+  private def register(id: BlockManagerId, maxMemSize: Long, maxTachyonSize: Long, slaveActor: ActorRef) {
     if (!blockManagerInfo.contains(id)) {
       blockManagerIdByExecutor.get(id.executorId) match {
         case Some(manager) =>
@@ -234,7 +234,7 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
           blockManagerIdByExecutor(id.executorId) = id
       }
       blockManagerInfo(id) = new BlockManagerMasterActor.BlockManagerInfo(
-        id, System.currentTimeMillis(), maxMemSize, slaveActor)
+        id, System.currentTimeMillis(), maxMemSize, maxTachyonSize, slaveActor)
     }
   }
 
@@ -243,7 +243,8 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
       blockId: BlockId,
       storageLevel: StorageLevel,
       memSize: Long,
-      diskSize: Long) {
+      diskSize: Long,
+      tachyonSize: Long) {
 
     if (!blockManagerInfo.contains(blockManagerId)) {
       if (blockManagerId.executorId == "<driver>" && !isLocal) {
@@ -262,7 +263,7 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
       return
     }
 
-    blockManagerInfo(blockManagerId).updateBlockInfo(blockId, storageLevel, memSize, diskSize)
+    blockManagerInfo(blockManagerId).updateBlockInfo(blockId, storageLevel, memSize, diskSize, tachyonSize)
 
     var locations: mutable.HashSet[BlockManagerId] = null
     if (blockLocations.containsKey(blockId)) {
@@ -310,17 +311,19 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
 private[spark]
 object BlockManagerMasterActor {
 
-  case class BlockStatus(storageLevel: StorageLevel, memSize: Long, diskSize: Long)
+  case class BlockStatus(storageLevel: StorageLevel, memSize: Long, diskSize: Long, tachyonSize: Long)
 
   class BlockManagerInfo(
       val blockManagerId: BlockManagerId,
       timeMs: Long,
       val maxMem: Long,
+      val maxTachyon: Long,
       val slaveActor: ActorRef)
     extends Logging {
 
     private var _lastSeenMs: Long = timeMs
     private var _remainingMem: Long = maxMem
+    private var _remainingTachyon: Long = maxTachyon
 
     // Mapping from block id to its status.
     private val _blocks = new JHashMap[BlockId, BlockStatus]
@@ -333,7 +336,7 @@ object BlockManagerMasterActor {
     }
 
     def updateBlockInfo(blockId: BlockId, storageLevel: StorageLevel, memSize: Long,
-                        diskSize: Long) {
+                        diskSize: Long, tachyonSize: Long) {
 
       updateLastSeenMs()
 
@@ -344,6 +347,10 @@ object BlockManagerMasterActor {
         if (originalLevel.useMemory) {
           _remainingMem += memSize
         }
+        
+        if (originalLevel.useTachyon) {
+          _remainingMem += tachyonSize
+        }
       }
 
       if (storageLevel.isValid) {
@@ -353,16 +360,21 @@ object BlockManagerMasterActor {
         // They can be both larger than 0, when a block is dropped from memory to disk.
         // Therefore, a safe way to set BlockStatus is to set its info in accurate modes.
         if (storageLevel.useMemory) {
-          _blocks.put(blockId, BlockStatus(storageLevel, memSize, 0))
+          _blocks.put(blockId, BlockStatus(storageLevel, memSize, 0, 0))
           _remainingMem -= memSize
           logInfo("Added %s in memory on %s (size: %s, free: %s)".format(
             blockId, blockManagerId.hostPort, Utils.bytesToString(memSize),
             Utils.bytesToString(_remainingMem)))
         }
         if (storageLevel.useDisk) {
-          _blocks.put(blockId, BlockStatus(storageLevel, 0, diskSize))
+          _blocks.put(blockId, BlockStatus(storageLevel, 0, diskSize, 0))
           logInfo("Added %s on disk on %s (size: %s)".format(
             blockId, blockManagerId.hostPort, Utils.bytesToString(diskSize)))
+        }
+        if (storageLevel.useTachyon) {
+          _blocks.put(blockId, BlockStatus(storageLevel, 0, 0, tachyonSize))
+          logInfo("Added %s on tachyon on %s (size: %s)".format(
+            blockId, blockManagerId.hostPort, Utils.bytesToString(tachyonSize)))
         }
       } else if (_blocks.containsKey(blockId)) {
         // If isValid is not true, drop the block.
@@ -378,6 +390,10 @@ object BlockManagerMasterActor {
           logInfo("Removed %s on %s on disk (size: %s)".format(
             blockId, blockManagerId.hostPort, Utils.bytesToString(blockStatus.diskSize)))
         }
+        if (blockStatus.storageLevel.useTachyon) {
+          logInfo("Removed %s on %s on tachyon (size: %s)".format(
+            blockId, blockManagerId.hostPort, Utils.bytesToString(blockStatus.tachyonSize )))
+        }
       }
     }
 
@@ -389,6 +405,8 @@ object BlockManagerMasterActor {
     }
 
     def remainingMem: Long = _remainingMem
+    
+    def remainingTachyon: Long = _remainingTachyon
 
     def lastSeenMs: Long = _lastSeenMs
 

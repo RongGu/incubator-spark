@@ -15,15 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.spark.storage
+package org.apache.spark.network.netty;
 
-import java.io.File
-import tachyon.client.TachyonFile
+import org.apache.spark.storage.BlockId;
+import org.apache.spark.storage.TachyonFileSegment;
 
-/**
- * References a particular segment of a file (potentially the entire file),
- * based off an offset and a length.
- */
-private[spark] class FileSegment(val file: File, val offset: Long, val length : Long) {
-  override def toString = "(name=%s, offset=%d, length=%d)".format(file.getName, offset, length)
+public interface TachyonFilePathResolver {
+  /** Get the file segment in which the given block resides. */
+  TachyonFileSegment getBlockLocation(BlockId blockId);
 }

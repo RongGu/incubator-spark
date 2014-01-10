@@ -26,7 +26,7 @@ import tachyon.client.TachyonFile
 
 import org.apache.spark.Logging
 import org.apache.spark.executor.ExecutorExitCode
-import org.apache.spark.network.netty.{PathResolver, ShuffleSender}
+import org.apache.spark.network.netty.{TachyonFilePathResolver, ShuffleSender}
 import org.apache.spark.util.Utils
 
 
@@ -39,7 +39,7 @@ import org.apache.spark.util.Utils
  * @param rootDirs The directories to use for storing block files. Data will be hashed among these.
  */
 private[spark] class TachyonBlockManager(shuffleManager: ShuffleBlockManager, rootDirs: String, val master: String)
-  extends PathResolver with Logging {
+  extends TachyonFilePathResolver with Logging {
 
   val client = if (master != null && master != "") TachyonFS.get(master) else null
     
