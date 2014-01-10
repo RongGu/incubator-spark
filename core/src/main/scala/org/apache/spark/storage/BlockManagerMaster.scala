@@ -19,10 +19,8 @@ package org.apache.spark.storage
 
 import scala.concurrent.{Await, Future}
 import scala.concurrent.ExecutionContext.Implicits.global
-
 import akka.actor._
 import akka.pattern.ask
-
 import org.apache.spark.{SparkConf, Logging, SparkException}
 import org.apache.spark.storage.BlockManagerMessages._
 import org.apache.spark.util.AkkaUtils
@@ -54,9 +52,9 @@ class BlockManagerMaster(var driverActor : ActorRef, conf: SparkConf) extends Lo
 
   /** Register the BlockManager's id with the driver. */
   def registerBlockManager(
-      blockManagerId: BlockManagerId, maxMemSize: Long, slaveActor: ActorRef) {
+      blockManagerId: BlockManagerId, maxMemSize: Long, maxTachyon: Long, slaveActor: ActorRef) {
     logInfo("Trying to register BlockManager")
-    tell(RegisterBlockManager(blockManagerId, maxMemSize, slaveActor))
+    tell(RegisterBlockManager(blockManagerId, maxMemSize, maxTachyon, slaveActor))
     logInfo("Registered BlockManager")
   }
 
@@ -65,9 +63,10 @@ class BlockManagerMaster(var driverActor : ActorRef, conf: SparkConf) extends Lo
       blockId: BlockId,
       storageLevel: StorageLevel,
       memSize: Long,
-      diskSize: Long): Boolean = {
+      diskSize: Long,
+      tachyonSize: Long): Boolean = {
     val res = askDriverWithReply[Boolean](
-      UpdateBlockInfo(blockManagerId, blockId, storageLevel, memSize, diskSize))
+      UpdateBlockInfo(blockManagerId, blockId, storageLevel, memSize, diskSize, tachyonSize))
     logInfo("Updated info of block " + blockId)
     res
   }

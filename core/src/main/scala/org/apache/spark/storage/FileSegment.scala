@@ -18,6 +18,7 @@
 package org.apache.spark.storage
 
 import java.io.File
+import tachyon.client.TachyonFile
 
 /**
  * References a particular segment of a file (potentially the entire file),
@@ -25,4 +26,8 @@ import java.io.File
  */
 private[spark] class FileSegment(val file: File, val offset: Long, val length : Long) {
   override def toString = "(name=%s, offset=%d, length=%d)".format(file.getName, offset, length)
+}
+
+private[spark] class TachyonFileSegment(val file: TachyonFile, val offset: Long, val length : Long) {
+  override def toString = "(name=%s, offset=%d, length=%d)".format(file.getPath(), offset, length)
 }
