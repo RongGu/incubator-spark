@@ -515,14 +515,6 @@ private[spark] object Utils extends Logging {
     }
     files
   }
-  
-  private def listFilesSafely(file: TachyonFile): Seq[TachyonFile] = {
-    val files = file.
-    if (files == null) {
-      throw new IOException("Failed to list files for dir: " + file)
-    }
-    files
-  }
 
   /**
    * Delete a file or directory and its contents recursively.

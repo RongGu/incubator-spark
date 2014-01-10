@@ -342,12 +342,7 @@ private[spark] class BlockManager(
             tachyonStore.getBytes(blockId) match {
               case Some(bytes) => {
                 if (!asValues) {
-                  if (filter == null) {
-                    return Some(bytes)
-                  } else {
-                    return Some(dataSerialize(blockId,
-                      filter(dataDeserialize(blockId, bytes))))
-                  }
+                  return Some(bytes)
                 } else {
                   return Some(dataDeserialize(blockId, bytes))
                 }
