@@ -17,8 +17,10 @@ private class Entry(val size: Long)
 /**
  * Stores BlockManager blocks on Tachyon.
  */
-private class TachyonStore(blockManager: BlockManager,
-  tachyonManager: TachyonBlockManager, maxMemory: Long)
+private class TachyonStore(
+    blockManager: BlockManager,
+    tachyonManager: TachyonBlockManager, 
+    maxMemory: Long)
   extends BlockStore(blockManager: BlockManager) with Logging {
 
   private val entries = new LinkedHashMap[BlockId, Entry](32, 0.75f, true)

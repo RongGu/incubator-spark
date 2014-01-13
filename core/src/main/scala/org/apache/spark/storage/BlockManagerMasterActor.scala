@@ -72,10 +72,11 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
       register(blockManagerId, maxMemSize, maxTachyonSize, slaveActor)
       sender ! true
 
-    case UpdateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize) =>
-      // TODO: Ideally we want to handle all the message replies in receive instead of in the
-      // individual private methods.
-      updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize)
+    case UpdateBlockInfo(
+      blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize) =>
+        // TODO: Ideally we want to handle all the message replies in receive instead of in the
+        // individual private methods.
+        updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size, tachyonSize)
 
     case GetLocations(blockId) =>
       sender ! getLocations(blockId)
@@ -169,8 +170,8 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
     val toRemove = new mutable.HashSet[BlockManagerId]
     for (info <- blockManagerInfo.values) {
       if (info.lastSeenMs < minSeenTime) {
-        logWarning("Removing BlockManager " + info.blockManagerId + " with no recent heart beats: " +
-          (now - info.lastSeenMs) + "ms exceeds " + slaveTimeout + "ms")
+        logWarning("Removing BlockManager " + info.blockManagerId + " with no recent heart beats: " 
+            + (now - info.lastSeenMs) + "ms exceeds " + slaveTimeout + "ms")
         toRemove += info.blockManagerId
       }
     }
@@ -222,7 +223,12 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
     }.toArray
   }
 
-  private def register(id: BlockManagerId, maxMemSize: Long, maxTachyonSize: Long, slaveActor: ActorRef) {
+  private def register(
+      id: BlockManagerId, 
+      maxMemSize: Long, 
+      maxTachyonSize: Long, 
+      slaveActor: ActorRef) {
+    
     if (!blockManagerInfo.contains(id)) {
       blockManagerIdByExecutor.get(id.executorId) match {
         case Some(manager) =>
@@ -263,7 +269,8 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
       return
     }
 
-    blockManagerInfo(blockManagerId).updateBlockInfo(blockId, storageLevel, memSize, diskSize, tachyonSize)
+    blockManagerInfo(blockManagerId).updateBlockInfo(
+      blockId, storageLevel, memSize, diskSize, tachyonSize)
 
     var locations: mutable.HashSet[BlockManagerId] = null
     if (blockLocations.containsKey(blockId)) {
@@ -311,7 +318,8 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
 private[spark]
 object BlockManagerMasterActor {
 
-  case class BlockStatus(storageLevel: StorageLevel, memSize: Long, diskSize: Long, tachyonSize: Long)
+  case class BlockStatus(
+      storageLevel: StorageLevel, memSize: Long, diskSize: Long, tachyonSize: Long)
 
   class BlockManagerInfo(
       val blockManagerId: BlockManagerId,
@@ -349,7 +357,7 @@ object BlockManagerMasterActor {
         }
         
         if (originalLevel.useTachyon) {
-          _remainingMem += tachyonSize
+          _remainingTachyon += tachyonSize
         }
       }
 
@@ -400,6 +408,7 @@ object BlockManagerMasterActor {
     def removeBlock(blockId: BlockId) {
       if (_blocks.containsKey(blockId)) {
         _remainingMem += _blocks.get(blockId).memSize
+        _remainingTachyon += _blocks.get(blockId).tachyonSize
         _blocks.remove(blockId)
       }
     }

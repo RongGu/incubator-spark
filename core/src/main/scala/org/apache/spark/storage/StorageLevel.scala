@@ -21,8 +21,9 @@ import java.io.{Externalizable, IOException, ObjectInput, ObjectOutput}
 
 /**
  * Flags for controlling the storage of an RDD. Each StorageLevel records whether to use memory,
- * whether to drop the RDD to disk if it falls out of memory, whether to keep the data in memory
- * in a serialized format, and whether to replicate the RDD partitions on multiple nodes.
+ * or tachyon, whether to drop the RDD to disk if it falls out of memory or tachyon , whether to 
+ * keep the data in memory in a serialized format, and whether to replicate the RDD partitions on 
+ * multiple nodes.
  * The [[org.apache.spark.storage.StorageLevel$]] singleton object contains some static constants
  * for commonly useful storage levels. To create your own storage level object, use the
  * factory method of the singleton object (`StorageLevel(...)`).
@@ -37,7 +38,7 @@ class StorageLevel private(
 
   // TODO: Also add fields for caching priority, dataset ID, and flushing.
   private def this(flags: Int, replication: Int) {
-   this((flags & 4) != 0, (flags & 2) != 0, (flags & 8) != 0, (flags & 1) != 0, replication)
+    this((flags & 4) != 0, (flags & 2) != 0, (flags & 8) != 0, (flags & 1) != 0, replication)
   }
 
   def this() = this(false, true, false, false)  // For deserialization
@@ -100,8 +101,8 @@ class StorageLevel private(
   @throws(classOf[IOException])
   private def readResolve(): Object = StorageLevel.getCachedStorageLevel(this)
 
-  override def toString: String =
-    "StorageLevel(%b, %b, %b, %b, %d)".format(useDisk, useMemory, useTachyon, deserialized, replication)
+  override def toString: String = "StorageLevel(%b, %b, %b, %b, %d)".format(
+    useDisk, useMemory, useTachyon, deserialized, replication)
 
   override def hashCode(): Int = toInt * 41 + replication
   def description : String = {
@@ -136,8 +137,9 @@ object StorageLevel {
   val TACHYON_AND_DISK_2 = new StorageLevel(true, false, true, false, 2)
 
   /** Create a new StorageLevel object */
-  def apply(useDisk: Boolean, useMemory: Boolean, useTachyon: Boolean, deserialized: Boolean, replication: Int = 1) =
-    getCachedStorageLevel(new StorageLevel(useDisk, useMemory, useTachyon, deserialized, replication))
+  def apply(useDisk: Boolean, useMemory: Boolean, useTachyon: Boolean, 
+    deserialized: Boolean, replication: Int = 1) =getCachedStorageLevel(
+          new StorageLevel(useDisk, useMemory, useTachyon, deserialized, replication))
 
   /** Create a new StorageLevel object from its integer representation */
   def apply(flags: Int, replication: Int) =

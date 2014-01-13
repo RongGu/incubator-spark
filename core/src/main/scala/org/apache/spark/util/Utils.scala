@@ -21,14 +21,18 @@ import java.io._
 import java.net.{InetAddress, URL, URI, NetworkInterface, Inet4Address}
 import java.util.{Locale, Random, UUID}
 import java.util.concurrent.{ConcurrentHashMap, Executors, ThreadPoolExecutor}
+
 import scala.collection.JavaConversions._
 import scala.collection.Map
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
 import scala.reflect.ClassTag
+
 import com.google.common.io.Files
 import com.google.common.util.concurrent.ThreadFactoryBuilder
+
 import org.apache.hadoop.fs.{Path, FileSystem, FileUtil}
+
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
 import org.apache.spark.deploy.SparkHadoopUtil
 import java.nio.ByteBuffer
@@ -36,7 +40,6 @@ import org.apache.spark.{SparkConf, SparkContext, SparkException, Logging}
 
 import tachyon.client.TachyonFile
 import tachyon.client.TachyonFS
-
 
 /**
  * Various utility methods used by Spark.

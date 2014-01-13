@@ -57,13 +57,18 @@ private[spark] class BlockManager(
   private[storage] val memoryStore: BlockStore = new MemoryStore(this, maxMemory)
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
-  val tachyonStorePath = conf.get("spark.tachyonstore.dir",  System.getProperty("java.io.tmpdir")) + "/" + this.executorId
+  val tachyonStorePath = conf.get(
+    "spark.tachyonstore.dir",  System.getProperty("java.io.tmpdir")) + "/" + this.executorId
   val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
   private[storage] val tachyonStore: TachyonStore = 
-    if (tachyonStorePath != null && !tachyonStorePath.isEmpty() && tachyonMaster != null && tachyonMaster.isEmpty()) {
-    	new TachyonStore(this, new TachyonBlockManager(shuffleBlockManager, tachyonStorePath, tachyonMaster), maxTachyon)
+    if (tachyonStorePath != null && 
+      !tachyonStorePath.isEmpty() && 
+      tachyonMaster != null && 
+      tachyonMaster.isEmpty()) {
+        new TachyonStore(this, new TachyonBlockManager(
+          shuffleBlockManager, tachyonStorePath, tachyonMaster), maxTachyon)
     } else {
-    	null
+      null
     }
 
   // If we use Netty for shuffle, start a new Netty-based shuffle sender service.
@@ -130,7 +135,8 @@ private[spark] class BlockManager(
    */
   def this(execId: String, actorSystem: ActorSystem, master: BlockManagerMaster,
            serializer: Serializer, conf: SparkConf) = {
-    this(execId, actorSystem, master, serializer, BlockManager.getMaxMemory(conf), BlockManager.getMaxTachyon(conf),conf)
+    this(execId, actorSystem, master, serializer, BlockManager.getMaxMemory(conf), 
+         BlockManager.getMaxTachyon(conf),conf)
   }
 
   /**
@@ -243,7 +249,8 @@ private[spark] class BlockManager(
           val inMem = level.useMemory && memoryStore.contains(blockId)
           val onDisk = level.useDisk && diskStore.contains(blockId)
           val inTachyon = level.useTachyon && tachyonStore.contains(blockId)
-          val storageLevel = StorageLevel(onDisk, inMem, inTachyon, level.deserialized, level.replication)
+          val storageLevel = StorageLevel(
+            onDisk, inMem, inTachyon, level.deserialized, level.replication)
           val memSize = if (inMem) memoryStore.getSize(blockId) else droppedMemorySize
           val tachyonSize = if (inTachyon) tachyonStore.getSize(blockId) else droppedMemorySize
           val diskSize = if (onDisk) diskStore.getSize(blockId) else 0L
@@ -252,7 +259,8 @@ private[spark] class BlockManager(
     }
 
     if (tellMaster) {
-      master.updateBlockInfo(blockManagerId, blockId, curLevel, inMemSize, onDiskSize, inTachyonSize)
+      master.updateBlockInfo(
+        blockManagerId, blockId, curLevel, inMemSize, onDiskSize, inTachyonSize)
     } else {
       true
     }
@@ -683,7 +691,8 @@ private[spark] class BlockManager(
    */
   var cachedPeers: Seq[BlockManagerId] = null
   private def replicate(blockId: BlockId, data: ByteBuffer, level: StorageLevel) {
-    val tLevel = StorageLevel(level.useDisk, level.useMemory, level.useTachyon, level.deserialized, 1)
+    val tLevel = StorageLevel(
+      level.useDisk, level.useMemory, level.useTachyon, level.deserialized, 1)
     if (cachedPeers == null) {
       cachedPeers = master.getPeers(blockManagerId, level.replication - 1)
     }
