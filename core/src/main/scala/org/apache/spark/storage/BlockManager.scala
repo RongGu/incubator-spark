@@ -598,7 +598,7 @@ private[spark] class BlockManager(
                 case Right(newBytes) => bytesAfterPut = newBytes
                 case Left(newIterator) => valuesAfterPut = newIterator
               }
-            }else if (level.useTachyon) {
+            } else if (level.useTachyon) {
               // Save  to Tachyon.
               val askForBytes = level.replication > 1
               val res = tachyonStore.putValues(blockId, values, level, askForBytes)
@@ -622,9 +622,12 @@ private[spark] class BlockManager(
           case Right(bytes) => {
             bytes.rewind()
             // Store it only in memory at first, even if useDisk is also set to true
-            (if (level.useMemory) memoryStore 
-                else if (level.useTachyon) tachyonStore 
-                else diskStore
+            (if (level.useMemory) {
+               memoryStore
+             } else if (level.useTachyon) {
+               tachyonStore
+             } else 
+               diskStore
             ).putBytes(blockId, bytes, level)
             size = bytes.limit
           }
