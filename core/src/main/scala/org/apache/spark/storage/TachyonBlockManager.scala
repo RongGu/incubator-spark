@@ -99,6 +99,8 @@ private[spark] class TachyonBlockManager(
       }
     }
     val filePath = subDir + "/" + filename
+    if(!client.exist(filePath))
+      client.createFile(filePath)
     val file = client.getFile(filePath)
     file
   }

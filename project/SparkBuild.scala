@@ -40,8 +40,8 @@ object SparkBuild extends Build {
   val HBASE_VERSION = "0.94.6"
 
   // Target JVM version
-  val SCALAC_JVM_VERSION = "jvm-1.6"
-  val JAVAC_JVM_VERSION = "1.6"
+  val SCALAC_JVM_VERSION = "jvm-1.7"
+  val JAVAC_JVM_VERSION = "1.7"
     
   // Whether to build Spark with Tachyon jar.
   val TACHYON_ENABLED = true

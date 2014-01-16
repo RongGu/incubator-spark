@@ -60,13 +60,15 @@ private[spark] class BlockManager(
   val tachyonStorePath = conf.get(
     "spark.tachyonstore.dir",  System.getProperty("java.io.tmpdir")) + "/" + this.executorId
   val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
+  
   private[storage] val tachyonStore: TachyonStore = 
     if (tachyonStorePath != null && 
       !tachyonStorePath.isEmpty() && 
       tachyonMaster != null && 
-      tachyonMaster.isEmpty()) {
-        new TachyonStore(this, new TachyonBlockManager(
-          shuffleBlockManager, tachyonStorePath, tachyonMaster), maxTachyon)
+      !tachyonMaster.isEmpty()) {
+    	val tachyonBlockManager = new TachyonBlockManager(
+    	  shuffleBlockManager, tachyonStorePath, tachyonMaster)
+        new TachyonStore(this, tachyonBlockManager, maxTachyon)
     } else {
       null
     }
@@ -533,7 +535,7 @@ private[spark] class BlockManager(
                     level: StorageLevel, tellMaster: Boolean = true): Long = {
     require(blockId != null, "BlockId is null")
     require(level != null && level.isValid, "StorageLevel is null or invalid")
-
+    
     // Remember the block's storage level so that we can correctly drop it to disk if it needs
     // to be dropped right after it got put into memory. Note, however, that other threads will
     // not be able to get() this block until we call markReady on its BlockInfo.
