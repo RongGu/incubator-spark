@@ -3,15 +3,19 @@ package org.apache.spark.storage
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.util.LinkedHashMap
-import scala.collection.mutable.ArrayBuffer
-import org.apache.spark.Logging
-import org.apache.spark.util.Utils
 import java.io.FileOutputStream
 import java.nio.channels.FileChannel.MapMode
+
+import scala.collection.mutable.ArrayBuffer
+
 import tachyon.client.OutStream
 import tachyon.client.WriteType
 import tachyon.client.ReadType
 import tachyon.client.InStream
+
+import org.apache.spark.Logging
+import org.apache.spark.util.Utils
+
 
 private class Entry(val size: Long)
 /**

@@ -536,7 +536,7 @@ private[spark] object Utils extends Logging {
   /**
    * Delete a file or directory and its contents recursively.
    */
-  def deleteRecursively(dir: TachyonFile, client: TachyonFS ) {
+  def deleteRecursively(dir: TachyonFile, client: TachyonFS) {
     if (!client.delete(dir.getPath(), true)) {
       throw new IOException("Failed to delete the tachyon dir: " + dir)
     }

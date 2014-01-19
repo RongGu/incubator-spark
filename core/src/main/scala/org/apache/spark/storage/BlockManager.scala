@@ -58,7 +58,8 @@ private[spark] class BlockManager(
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
   val tachyonStorePath = conf.get(
-    "spark.tachyonstore.dir",  System.getProperty("java.io.tmpdir")) + "/" + this.executorId
+    "spark.tachyonstore.dir",  
+    System.getProperty("java.io.tmpdir")) + "/" + conf.get("spark.app.name") + "/" + this.executorId 
   val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
   
   private[storage] val tachyonStore: TachyonStore = 
@@ -970,7 +971,7 @@ private[spark] object BlockManager extends Logging {
   val ID_GENERATOR = new IdGenerator
 
   def getMaxMemory(conf: SparkConf): Long = {
-    val memoryFraction = conf.get("spark.storage.memoryFraction", "0.2").toDouble
+    val memoryFraction = conf.get("spark.storage.memoryFraction", "0.66").toDouble
     (Runtime.getRuntime.maxMemory * memoryFraction).toLong
   }
   
