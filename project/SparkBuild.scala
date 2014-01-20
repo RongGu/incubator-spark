@@ -48,18 +48,20 @@ object SparkBuild extends Build {
   lazy val core = Project("core", file("core"), settings = coreSettings)
 
   lazy val repl = Project("repl", file("repl"), settings = replSettings)
-    .dependsOn(core, bagel, mllib)
+    .dependsOn(core, graphx, bagel, mllib)
 
   lazy val tools = Project("tools", file("tools"), settings = toolsSettings) dependsOn(core) dependsOn(streaming)
 
   lazy val bagel = Project("bagel", file("bagel"), settings = bagelSettings) dependsOn(core)
+
+  lazy val graphx = Project("graphx", file("graphx"), settings = graphxSettings) dependsOn(core)
 
   lazy val streaming = Project("streaming", file("streaming"), settings = streamingSettings) dependsOn(core)
 
   lazy val mllib = Project("mllib", file("mllib"), settings = mllibSettings) dependsOn(core)
 
   lazy val assemblyProj = Project("assembly", file("assembly"), settings = assemblyProjSettings)
-    .dependsOn(core, bagel, mllib, repl, streaming) dependsOn(maybeYarn: _*)
+    .dependsOn(core, graphx, bagel, mllib, repl, streaming) dependsOn(maybeYarn: _*)
 
   lazy val assembleDeps = TaskKey[Unit]("assemble-deps", "Build assembly of dependencies and packages Spark projects")
 
@@ -90,7 +92,7 @@ object SparkBuild extends Build {
   lazy val maybeYarn = if (isYarnEnabled) Seq[ClasspathDependency](if (isNewHadoop) yarn else yarnAlpha) else Seq[ClasspathDependency]()
   lazy val maybeYarnRef = if (isYarnEnabled) Seq[ProjectReference](if (isNewHadoop) yarn else yarnAlpha) else Seq[ProjectReference]()
 
-  lazy val externalTwitter = Project("external-twitter", file("external/twitter"), settings = twitterSettings) 
+  lazy val externalTwitter = Project("external-twitter", file("external/twitter"), settings = twitterSettings)
     .dependsOn(streaming % "compile->compile;test->test")
 
   lazy val externalKafka = Project("external-kafka", file("external/kafka"), settings = kafkaSettings)
@@ -98,23 +100,23 @@ object SparkBuild extends Build {
 
   lazy val externalFlume = Project("external-flume", file("external/flume"), settings = flumeSettings)
     .dependsOn(streaming % "compile->compile;test->test")
-  
+
   lazy val externalZeromq = Project("external-zeromq", file("external/zeromq"), settings = zeromqSettings)
     .dependsOn(streaming % "compile->compile;test->test")
-  
+
   lazy val externalMqtt = Project("external-mqtt", file("external/mqtt"), settings = mqttSettings)
     .dependsOn(streaming % "compile->compile;test->test")
 
   lazy val allExternal = Seq[ClasspathDependency](externalTwitter, externalKafka, externalFlume, externalZeromq, externalMqtt)
   lazy val allExternalRefs = Seq[ProjectReference](externalTwitter, externalKafka, externalFlume, externalZeromq, externalMqtt)
-  
+
   lazy val examples = Project("examples", file("examples"), settings = examplesSettings)
-    .dependsOn(core, mllib, bagel, streaming, externalTwitter) dependsOn(allExternal: _*)
+    .dependsOn(core, mllib, graphx, bagel, streaming, externalTwitter) dependsOn(allExternal: _*)
 
   // Everything except assembly, tools and examples belong to packageProjects
-  lazy val packageProjects = Seq[ProjectReference](core, repl, bagel, streaming, mllib) ++ maybeYarnRef
+  lazy val packageProjects = Seq[ProjectReference](core, repl, bagel, streaming, mllib, graphx) ++ maybeYarnRef
 
-  lazy val allProjects = packageProjects ++ allExternalRefs ++ Seq[ProjectReference](examples, tools, assemblyProj) 
+  lazy val allProjects = packageProjects ++ allExternalRefs ++ Seq[ProjectReference](examples, tools, assemblyProj)
 
   def sharedSettings = Defaults.defaultSettings ++ Seq(
     organization       := "org.apache.spark",
@@ -136,6 +138,13 @@ object SparkBuild extends Build {
     javaOptions += "-Xmx3g",
     // Show full stack trace and duration in test cases.
     testOptions in Test += Tests.Argument("-oDF"),
+    // Remove certain packages from Scaladoc
+    scalacOptions in (Compile,doc) := Seq("-skip-packages", Seq(
+      "akka",
+      "org.apache.spark.network",
+      "org.apache.spark.deploy",
+      "org.apache.spark.util.collection"
+      ).mkString(":")),
 
     // Only allow one test at a time, even across projects, since they run in the same JVM
     concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
@@ -253,6 +262,7 @@ object SparkBuild extends Build {
         "org.ow2.asm"              % "asm"              % "4.0",
         "org.spark-project.akka"  %% "akka-remote"      % "2.2.3-shaded-protobuf"  excludeAll(excludeNetty),
         "org.spark-project.akka"  %% "akka-slf4j"       % "2.2.3-shaded-protobuf"  excludeAll(excludeNetty),
+        "org.spark-project.akka"  %% "akka-testkit"     % "2.2.3-shaded-protobuf" % "test",
         "net.liftweb"             %% "lift-json"        % "2.5.1"  excludeAll(excludeNetty),
         "it.unimi.dsi"             % "fastutil"         % "6.4.4",
         "colt"                     % "colt"             % "1.2.0",
@@ -310,6 +320,10 @@ object SparkBuild extends Build {
     name := "spark-tools"
   ) ++ assemblySettings ++ extraAssemblySettings
 
+  def graphxSettings = sharedSettings ++ Seq(
+    name := "spark-graphx"
+  )
+
   def bagelSettings = sharedSettings ++ Seq(
     name := "spark-bagel"
   )
@@ -324,7 +338,7 @@ object SparkBuild extends Build {
   def streamingSettings = sharedSettings ++ Seq(
     name := "spark-streaming",
     libraryDependencies ++= Seq(
-      "commons-io" % "commons-io" % "2.4" 
+      "commons-io" % "commons-io" % "2.4"
     )
   )
 
@@ -391,19 +405,19 @@ object SparkBuild extends Build {
       "org.twitter4j" % "twitter4j-stream" % "3.0.3" excludeAll(excludeNetty)
     )
   )
-  
+
   def kafkaSettings() = sharedSettings ++ Seq(
     name := "spark-streaming-kafka",
     libraryDependencies ++= Seq(
       "com.github.sgroschupf"    % "zkclient"   % "0.1"          excludeAll(excludeNetty),
-      "com.sksamuel.kafka"      %% "kafka"      % "0.8.0-beta1"
+      "org.apache.kafka"        %% "kafka"      % "0.8.0"
         exclude("com.sun.jdmk", "jmxtools")
         exclude("com.sun.jmx", "jmxri")
         exclude("net.sf.jopt-simple", "jopt-simple")
         excludeAll(excludeNetty)
     )
   )
-  
+
   def flumeSettings() = sharedSettings ++ Seq(
     name := "spark-streaming-flume",
     libraryDependencies ++= Seq(

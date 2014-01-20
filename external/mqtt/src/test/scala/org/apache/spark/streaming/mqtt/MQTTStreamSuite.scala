@@ -22,7 +22,7 @@ import org.apache.spark.storage.StorageLevel
 
 class MQTTStreamSuite extends TestSuiteBase {
 
-  test("MQTT input stream") {
+  test("mqtt input stream") {
     val ssc = new StreamingContext(master, framework, batchDuration)
     val brokerUrl = "abc"
     val topic = "def"
@@ -32,5 +32,6 @@ class MQTTStreamSuite extends TestSuiteBase {
     val test2 = MQTTUtils.createStream(ssc, brokerUrl, topic, StorageLevel.MEMORY_AND_DISK_SER_2)
 
     // TODO: Actually test receiving data
+    ssc.stop()
   }
 }

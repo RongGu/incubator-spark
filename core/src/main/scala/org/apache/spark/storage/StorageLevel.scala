@@ -81,7 +81,7 @@ class StorageLevel private(
     if (deserialized_) {
       ret |= 1
     }
-    return ret
+    ret
   }
 
   override def writeExternal(out: ObjectOutput) {
@@ -117,6 +117,10 @@ class StorageLevel private(
 }
 
 
+/**
+ * Various [[org.apache.spark.storage.StorageLevel]] defined and utility functions for creating
+ * new storage levels.
+ */
 object StorageLevel {
   
   val NONE = new StorageLevel(false, false, false, false)

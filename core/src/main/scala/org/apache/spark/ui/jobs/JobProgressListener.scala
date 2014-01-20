@@ -33,7 +33,7 @@ import org.apache.spark.scheduler._
  */
 private[spark] class JobProgressListener(val sc: SparkContext) extends SparkListener {
   // How many stages to remember
-  val RETAINED_STAGES = sc.conf.get("spark.ui.retained_stages", "1000").toInt
+  val RETAINED_STAGES = sc.conf.getInt("spark.ui.retainedStages", 1000)
   val DEFAULT_POOL_NAME = "default"
 
   val stageIdToPool = new HashMap[Int, String]()
@@ -52,6 +52,8 @@ private[spark] class JobProgressListener(val sc: SparkContext) extends SparkList
   val stageIdToTime = HashMap[Int, Long]()
   val stageIdToShuffleRead = HashMap[Int, Long]()
   val stageIdToShuffleWrite = HashMap[Int, Long]()
+  val stageIdToMemoryBytesSpilled = HashMap[Int, Long]()
+  val stageIdToDiskBytesSpilled = HashMap[Int, Long]()
   val stageIdToTasksActive = HashMap[Int, HashSet[TaskInfo]]()
   val stageIdToTasksComplete = HashMap[Int, Int]()
   val stageIdToTasksFailed = HashMap[Int, Int]()
@@ -78,6 +80,8 @@ private[spark] class JobProgressListener(val sc: SparkContext) extends SparkList
         stageIdToTime.remove(s.stageId)
         stageIdToShuffleRead.remove(s.stageId)
         stageIdToShuffleWrite.remove(s.stageId)
+        stageIdToMemoryBytesSpilled.remove(s.stageId)
+        stageIdToDiskBytesSpilled.remove(s.stageId)
         stageIdToTasksActive.remove(s.stageId)
         stageIdToTasksComplete.remove(s.stageId)
         stageIdToTasksFailed.remove(s.stageId)
@@ -149,6 +153,8 @@ private[spark] class JobProgressListener(val sc: SparkContext) extends SparkList
         Option(taskEnd.taskMetrics).foreach { taskMetrics =>
           taskMetrics.shuffleReadMetrics.foreach { y.shuffleRead += _.remoteBytesRead }
           taskMetrics.shuffleWriteMetrics.foreach { y.shuffleWrite += _.shuffleBytesWritten }
+          y.memoryBytesSpilled += taskMetrics.memoryBytesSpilled
+          y.diskBytesSpilled += taskMetrics.diskBytesSpilled
         }
       }
       case _ => {}
@@ -183,6 +189,14 @@ private[spark] class JobProgressListener(val sc: SparkContext) extends SparkList
       s.shuffleBytesWritten).getOrElse(0L)
     stageIdToShuffleWrite(sid) += shuffleWrite
     totalShuffleWrite += shuffleWrite
+
+    stageIdToMemoryBytesSpilled.getOrElseUpdate(sid, 0L)
+    val memoryBytesSpilled = metrics.map(m => m.memoryBytesSpilled).getOrElse(0L)
+    stageIdToMemoryBytesSpilled(sid) += memoryBytesSpilled
+
+    stageIdToDiskBytesSpilled.getOrElseUpdate(sid, 0L)
+    val diskBytesSpilled = metrics.map(m => m.diskBytesSpilled).getOrElse(0L)
+    stageIdToDiskBytesSpilled(sid) += diskBytesSpilled
 
     val taskList = stageIdToTaskInfos.getOrElse(
       sid, HashSet[(TaskInfo, Option[TaskMetrics], Option[ExceptionFailure])]())

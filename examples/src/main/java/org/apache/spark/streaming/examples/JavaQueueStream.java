@@ -41,6 +41,8 @@ public final class JavaQueueStream {
       System.exit(1);
     }
 
+    StreamingExamples.setStreamingLogLevels();
+
     // Create the context
     JavaStreamingContext ssc = new JavaStreamingContext(args[0], "QueueStream", new Duration(1000),
             System.getenv("SPARK_HOME"), JavaStreamingContext.jarOfClass(JavaQueueStream.class));
@@ -56,9 +58,8 @@ public final class JavaQueueStream {
     }
 
     for (int i = 0; i < 30; i++) {
-      rddQueue.add(ssc.sc().parallelize(list));
+      rddQueue.add(ssc.sparkContext().parallelize(list));
     }
-
 
     // Create the QueueInputDStream and use it do some processing
     JavaDStream<Integer> inputStream = ssc.queueStream(rddQueue);
