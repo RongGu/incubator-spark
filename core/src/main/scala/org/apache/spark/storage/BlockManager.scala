@@ -60,10 +60,8 @@ private[spark] class BlockManager(
   val isEnableTachyon = conf.get("spark.tachyon.enable",  "false")
   val tachyonStorePath = conf.get(
     "spark.tachyonstore.dir",  
-    System.getProperty("java.io.tmpdir")) + "/" + conf.get("spark.app.name") + "/" + this.executorId 
+    System.getProperty("java.io.tmpdir")) + "/" + conf.get("spark.app.name","test") + "/" + this.executorId 
   val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
-  
-  
   
   private[storage] val tachyonStore: TachyonStore = 
     if (isEnableTachyon.equals("true") &&
@@ -848,7 +846,7 @@ private[spark] class BlockManager(
       // Removals are idempotent in disk store and memory store. At worst, we get a warning.
       val removedFromMemory = memoryStore.remove(blockId)
       val removedFromDisk = diskStore.remove(blockId)
-      val removedFromTachyon = tachyonStore.remove(blockId)
+      val removedFromTachyon = if (tachyonStore != null) tachyonStore.remove(blockId) else true 
       if (!removedFromMemory && !removedFromDisk && !removedFromTachyon) {
         logWarning("Block " + blockId + " could not be removed as it was not found in either " +
           "the disk, memory or tachyon store")
