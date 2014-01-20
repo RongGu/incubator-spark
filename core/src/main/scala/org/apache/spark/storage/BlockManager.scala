@@ -57,13 +57,17 @@ private[spark] class BlockManager(
   private[storage] val memoryStore: BlockStore = new MemoryStore(this, maxMemory)
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
+  val isEnableTachyon = conf.get("spark.tachyon.enable",  "false")
   val tachyonStorePath = conf.get(
     "spark.tachyonstore.dir",  
     System.getProperty("java.io.tmpdir")) + "/" + conf.get("spark.app.name") + "/" + this.executorId 
   val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
   
+  
+  
   private[storage] val tachyonStore: TachyonStore = 
-    if (tachyonStorePath != null && 
+    if (isEnableTachyon.equals("true") &&
+      tachyonStorePath != null && 
       !tachyonStorePath.isEmpty() && 
       tachyonMaster != null && 
       !tachyonMaster.isEmpty()) {
@@ -959,7 +963,8 @@ private[spark] class BlockManager(
     blockInfo.clear()
     memoryStore.clear()
     diskStore.clear()
-    tachyonStore.clear()
+    if(tachyonStore != null)
+      tachyonStore.clear()
     metadataCleaner.cancel()
     broadcastCleaner.cancel()
     logInfo("BlockManager stopped")
