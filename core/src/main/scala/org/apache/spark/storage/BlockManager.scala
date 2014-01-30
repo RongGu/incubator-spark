@@ -58,7 +58,7 @@ private[spark] class BlockManager(
   private[storage] val memoryStore: BlockStore = new MemoryStore(this, maxMemory)
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
-  val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", true)
+  val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", false)
   val tachyonStorePath = conf.get(
     "spark.tachyonstore.dir",  
     System.getProperty("java.io.tmpdir")) + "/" + appId + "/" + this.executorId 
