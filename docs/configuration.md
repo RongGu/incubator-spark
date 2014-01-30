@@ -98,7 +98,7 @@ Apart from these, the following properties are also available, and may be useful
   <td>spark.default.parallelism</td>
   <td>8</td>
   <td>
-    Default number of tasks to use for distributed shuffle operations (<code>groupByKey</code>,
+    Default number of tasks to use across the cluster for distributed shuffle operations (<code>groupByKey</code>,
     <code>reduceByKey</code>, etc) when not set by user.
   </td>
 </tr>
@@ -158,7 +158,9 @@ Apart from these, the following properties are also available, and may be useful
   <td>spark.shuffle.spill.compress</td>
   <td>true</td>
   <td>
-    Whether to compress data spilled during shuffles.
+    Whether to compress data spilled during shuffles. If enabled, spill compression
+    always uses the `org.apache.spark.io.LZFCompressionCodec` codec, 
+    regardless of the value of `spark.io.compression.codec`.
   </td>
 </tr>
 <tr>
@@ -360,7 +362,16 @@ Apart from these, the following properties are also available, and may be useful
   <td>spark.streaming.blockInterval</td>
   <td>200</td>
   <td>
-    Duration (milliseconds) of how long to batch new objects coming from network receivers.
+    Duration (milliseconds) of how long to batch new objects coming from network receivers used
+    in Spark Streaming.
+  </td>
+</tr>
+<tr>
+  <td>spark.streaming.unpersist</td>
+  <td>false</td>
+  <td>
+    Force RDDs generated and persisted by Spark Streaming to be automatically unpersisted from
+    Spark's memory. Setting this to true is likely to reduce Spark's RDD memory usage.
   </td>
 </tr>
 <tr>
@@ -377,13 +388,6 @@ Apart from these, the following properties are also available, and may be useful
   <td>
     Size of each piece of a block in kilobytes for <code>TorrentBroadcastFactory</code>. 
     Too large a value decreases parallelism during broadcast (makes it slower); however, if it is too small, <code>BlockManager</code> might take a performance hit.
-  </td>
-</tr>
-<tr>
-  <td>akka.x.y....</td>
-  <td>value</td>
-  <td>
-    An arbitrary akka configuration can be set directly on spark conf and it is applied for all the ActorSystems created spark wide for that SparkContext and its assigned executors as well.
   </td>
 </tr>
 
@@ -459,6 +463,13 @@ Apart from these, the following properties are also available, and may be useful
     the whole cluster by default. <br/>
     <b>Note:</b> this setting needs to be configured in the standalone cluster master, not in individual
     applications; you can set it through <code>SPARK_JAVA_OPTS</code> in <code>spark-env.sh</code>.
+</td>
+</tr>
+<tr>
+  <td>spark.files.overwrite</td>
+  <td>false</td>
+  <td>
+    Whether to overwrite files added through SparkContext.addFile() when the target file exists and its contents do not match those of the source.
   </td>
 </tr>
 </table>

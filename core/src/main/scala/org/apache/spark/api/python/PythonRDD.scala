@@ -52,6 +52,8 @@ private[spark] class PythonRDD[T: ClassTag](
     val env = SparkEnv.get
     val worker = env.createPythonWorker(pythonExec, envVars.toMap)
 
+    @volatile var readerException: Exception = null
+
     // Start a thread to feed the process input from our parent's iterator
     new Thread("stdin writer for " + pythonExec) {
       override def run() {
@@ -62,7 +64,7 @@ private[spark] class PythonRDD[T: ClassTag](
           // Partition index
           dataOut.writeInt(split.index)
           // sparkFilesDir
-          dataOut.writeUTF(SparkFiles.getRootDirectory)
+          PythonRDD.writeUTF(SparkFiles.getRootDirectory, dataOut)
           // Broadcast variables
           dataOut.writeInt(broadcastVars.length)
           for (broadcast <- broadcastVars) {
@@ -72,18 +74,22 @@ private[spark] class PythonRDD[T: ClassTag](
           }
           // Python includes (*.zip and *.egg files)
           dataOut.writeInt(pythonIncludes.length)
-          pythonIncludes.foreach(dataOut.writeUTF)
+          for (include <- pythonIncludes) {
+            PythonRDD.writeUTF(include, dataOut)
+          }
           dataOut.flush()
           // Serialized command:
           dataOut.writeInt(command.length)
           dataOut.write(command)
           // Data values
-          for (elem <- parent.iterator(split, context)) {
-            PythonRDD.writeToStream(elem, dataOut)
-          }
+          PythonRDD.writeIteratorToStream(parent.iterator(split, context), dataOut)
           dataOut.flush()
           worker.shutdownOutput()
         } catch {
+          case e: java.io.FileNotFoundException =>
+            readerException = e
+            // Kill the Python worker process:
+            worker.shutdownOutput()
           case e: IOException =>
             // This can happen for legitimate reasons if the Python code stops returning data before we are done
             // passing elements through, e.g., for take(). Just log a message to say it happened.
@@ -108,6 +114,9 @@ private[spark] class PythonRDD[T: ClassTag](
       }
 
       private def read(): Array[Byte] = {
+        if (readerException != null) {
+          throw readerException
+        }
         try {
           stream.readInt() match {
             case length if length > 0 =>
@@ -206,21 +215,50 @@ private[spark] object PythonRDD {
     JavaRDD.fromRDD(sc.sc.parallelize(objs, parallelism))
   }
 
-  def writeToStream(elem: Any, dataOut: DataOutputStream) {
-    elem match {
-      case bytes: Array[Byte] =>
-        dataOut.writeInt(bytes.length)
-        dataOut.write(bytes)
-      case pair: (Array[Byte], Array[Byte]) =>
-        dataOut.writeInt(pair._1.length)
-        dataOut.write(pair._1)
-        dataOut.writeInt(pair._2.length)
-        dataOut.write(pair._2)
-      case str: String =>
-        dataOut.writeUTF(str)
-      case other =>
-        throw new SparkException("Unexpected element type " + other.getClass)
+  def writeIteratorToStream[T](iter: Iterator[T], dataOut: DataOutputStream) {
+    // The right way to implement this would be to use TypeTags to get the full
+    // type of T.  Since I don't want to introduce breaking changes throughout the
+    // entire Spark API, I have to use this hacky approach:
+    if (iter.hasNext) {
+      val first = iter.next()
+      val newIter = Seq(first).iterator ++ iter
+      first match {
+        case arr: Array[Byte] =>
+          newIter.asInstanceOf[Iterator[Array[Byte]]].foreach { bytes =>
+            dataOut.writeInt(bytes.length)
+            dataOut.write(bytes)
+          }
+        case string: String =>
+          newIter.asInstanceOf[Iterator[String]].foreach { str =>
+            writeUTF(str, dataOut)
+          }
+        case pair: Tuple2[_, _] =>
+          pair._1 match {
+            case bytePair: Array[Byte] =>
+              newIter.asInstanceOf[Iterator[Tuple2[Array[Byte], Array[Byte]]]].foreach { pair =>
+                dataOut.writeInt(pair._1.length)
+                dataOut.write(pair._1)
+                dataOut.writeInt(pair._2.length)
+                dataOut.write(pair._2)
+              }
+            case stringPair: String =>
+              newIter.asInstanceOf[Iterator[Tuple2[String, String]]].foreach { pair =>
+                writeUTF(pair._1, dataOut)
+                writeUTF(pair._2, dataOut)
+              }
+            case other =>
+              throw new SparkException("Unexpected Tuple2 element type " + pair._1.getClass)
+          }
+        case other =>
+          throw new SparkException("Unexpected element type " + first.getClass)
+      }
     }
+  }
+
+  def writeUTF(str: String, dataOut: DataOutputStream) {
+    val bytes = str.getBytes("UTF-8")
+    dataOut.writeInt(bytes.length)
+    dataOut.write(bytes)
   }
 
   def writeToFile[T](items: java.util.Iterator[T], filename: String) {
@@ -230,9 +268,7 @@ private[spark] object PythonRDD {
 
   def writeToFile[T](items: Iterator[T], filename: String) {
     val file = new DataOutputStream(new FileOutputStream(filename))
-    for (item <- items) {
-      writeToStream(item, file)
-    }
+    writeIteratorToStream(items, file)
     file.close()
   }
 
