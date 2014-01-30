@@ -44,7 +44,6 @@ private[spark] class BlockManager(
     val master: BlockManagerMaster,
     val defaultSerializer: Serializer,
     maxMemory: Long,
-    maxTachyon: Long,
     val conf: SparkConf,
     appId: String = "test")
   extends Logging {
@@ -59,7 +58,7 @@ private[spark] class BlockManager(
   private[storage] val memoryStore: BlockStore = new MemoryStore(this, maxMemory)
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
-  val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", false)
+  val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", true)
   val tachyonStorePath = conf.get(
     "spark.tachyonstore.dir",  
     System.getProperty("java.io.tmpdir")) + "/" + appId + "/" + this.executorId 
@@ -73,7 +72,7 @@ private[spark] class BlockManager(
       !tachyonMaster.isEmpty()) {
     	val tachyonBlockManager = new TachyonBlockManager(
     	  shuffleBlockManager, tachyonStorePath, tachyonMaster)
-        new TachyonStore(this, tachyonBlockManager, maxTachyon)
+        new TachyonStore(this, tachyonBlockManager)
     } else {
       null
     }
@@ -142,8 +141,7 @@ private[spark] class BlockManager(
    */
   def this(execId: String, actorSystem: ActorSystem, master: BlockManagerMaster,
            serializer: Serializer, conf: SparkConf, appId: String) = {
-    this(execId, actorSystem, master, serializer, BlockManager.getMaxMemory(conf), 
-         BlockManager.getMaxTachyon(conf),conf, appId)
+    this(execId, actorSystem, master, serializer, BlockManager.getMaxMemory(conf), conf, appId)
   }
 
   /**
@@ -151,7 +149,7 @@ private[spark] class BlockManager(
    * BlockManagerWorker actor.
    */
   private def initialize() {
-    master.registerBlockManager(blockManagerId, maxMemory, maxTachyon, slaveActor)
+    master.registerBlockManager(blockManagerId, maxMemory, slaveActor)
     BlockManagerWorker.startBlockManagerWorker(this)
     if (!BlockManager.getDisableHeartBeatsForTesting(conf)) {
       heartBeatTask = actorSystem.scheduler.schedule(0.seconds, heartBeatFrequency.milliseconds) {
@@ -189,7 +187,7 @@ private[spark] class BlockManager(
   def reregister() {
     // TODO: We might need to rate limit reregistering.
     logInfo("BlockManager reregistering with master")
-    master.registerBlockManager(blockManagerId, maxMemory, maxTachyon, slaveActor)
+    master.registerBlockManager(blockManagerId, maxMemory, slaveActor)
     reportAllBlocks()
   }
 
@@ -779,51 +777,6 @@ private[spark] class BlockManager(
       // The block has already been dropped
     }
   }
-  
-  /**
-   * Drop a block from tachyon, possibly putting it in disk if applicable. Called when the tachyon
-   * store reaches its limit and needs to free up space.
-   */
-  def dropFromTachyonStore(blockId: BlockId, data: ByteBuffer) {
-    logInfo("Dropping block " + blockId + " from tachyon")
-    val info = blockInfo.get(blockId).orNull
-    if (info != null)  {
-      info.synchronized {
-        // required ? As of now, this will be invoked only for blocks which are ready
-        // But in case this changes in future, adding for consistency sake.
-        if (! info.waitForReady() ) {
-          // If we get here, the block write failed.
-          logWarning("Block " + blockId + " was marked as failure. Nothing to drop")
-          return
-        }
-
-        val level = info.level
-        if (level.useDisk && !diskStore.contains(blockId)) {
-          logInfo("Writing block " + blockId + "from tachyon to disk")
-          diskStore.putBytes(blockId, data, level)
-        }
-        
-        val droppedTachyonSize = if (tachyonStore.contains(blockId)) tachyonStore.getSize(blockId) else 0L
-        val blockWasRemoved = tachyonStore.remove(blockId)
-        if (!blockWasRemoved) {
-          logWarning("Block " + blockId + " could not be dropped from tachyon as it does not exist")
-        } else {
-          logInfo("Droped " + blockId + " from tachyon")
-        }
-        
-        if (info.tellMaster) {
-          reportBlockStatus(blockId, info, droppedTachyonSize)
-        }
-        
-        if (!level.useDisk) {
-          // The block is completely gone from this node; forget it so we can put() it again later.
-          blockInfo.remove(blockId)
-        }
-      }
-    } else {
-      // The block has already been dropped
-    }
-  }
 
   /**
    * Remove all blocks belonging to the given RDD.
@@ -979,11 +932,6 @@ private[spark] object BlockManager extends Logging {
   def getMaxMemory(conf: SparkConf): Long = {
     val memoryFraction = conf.getDouble("spark.storage.memoryFraction", 0.6)
     (Runtime.getRuntime.maxMemory * memoryFraction).toLong
-  }
-  
-  def getMaxTachyon(conf: SparkConf): Long = {
-    val tachyonFraction = conf.get("spark.storage.tachyonFraction", "0.2").toDouble
-    (Runtime.getRuntime.maxMemory * tachyonFraction).toLong
   }
 
   def getHeartBeatFrequency(conf: SparkConf): Long =

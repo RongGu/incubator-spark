@@ -68,8 +68,8 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
   }
 
   def receive = {
-    case RegisterBlockManager(blockManagerId, maxMemSize, maxTachyonSize, slaveActor) =>
-      register(blockManagerId, maxMemSize, maxTachyonSize, slaveActor)
+    case RegisterBlockManager(blockManagerId, maxMemSize, slaveActor) =>
+      register(blockManagerId, maxMemSize, slaveActor)
       sender ! true
 
     case UpdateBlockInfo(
@@ -226,7 +226,6 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
   private def register(
       id: BlockManagerId, 
       maxMemSize: Long, 
-      maxTachyonSize: Long, 
       slaveActor: ActorRef) {
     
     if (!blockManagerInfo.contains(id)) {
@@ -240,7 +239,7 @@ class BlockManagerMasterActor(val isLocal: Boolean, conf: SparkConf) extends Act
           blockManagerIdByExecutor(id.executorId) = id
       }
       blockManagerInfo(id) = new BlockManagerMasterActor.BlockManagerInfo(
-        id, System.currentTimeMillis(), maxMemSize, maxTachyonSize, slaveActor)
+        id, System.currentTimeMillis(), maxMemSize, slaveActor)
     }
   }
 
@@ -325,13 +324,11 @@ object BlockManagerMasterActor {
       val blockManagerId: BlockManagerId,
       timeMs: Long,
       val maxMem: Long,
-      val maxTachyon: Long,
       val slaveActor: ActorRef)
     extends Logging {
 
     private var _lastSeenMs: Long = timeMs
     private var _remainingMem: Long = maxMem
-    private var _remainingTachyon: Long = maxTachyon
 
     // Mapping from block id to its status.
     private val _blocks = new JHashMap[BlockId, BlockStatus]
@@ -354,10 +351,6 @@ object BlockManagerMasterActor {
 
         if (originalLevel.useMemory) {
           _remainingMem += memSize
-        }
-        
-        if (originalLevel.useTachyon) {
-          _remainingTachyon += tachyonSize
         }
       }
 
@@ -408,14 +401,11 @@ object BlockManagerMasterActor {
     def removeBlock(blockId: BlockId) {
       if (_blocks.containsKey(blockId)) {
         _remainingMem += _blocks.get(blockId).memSize
-        _remainingTachyon += _blocks.get(blockId).tachyonSize
         _blocks.remove(blockId)
       }
     }
 
     def remainingMem: Long = _remainingMem
-    
-    def remainingTachyon: Long = _remainingTachyon
 
     def lastSeenMs: Long = _lastSeenMs
 

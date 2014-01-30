@@ -44,7 +44,6 @@ private[storage] object BlockManagerMessages {
   case class RegisterBlockManager(
       blockManagerId: BlockManagerId,
       maxMemSize: Long,
-      maxTachyonSize: Long,
       sender: ActorRef)
     extends ToBlockManagerMaster
 

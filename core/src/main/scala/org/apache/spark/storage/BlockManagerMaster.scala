@@ -55,12 +55,11 @@ class BlockManagerMaster(var driverActor : ActorRef, conf: SparkConf) extends Lo
   /** Register the BlockManager's id with the driver. */
   def registerBlockManager(
       blockManagerId: BlockManagerId, 
-      maxMemSize: Long, 
-      maxTachyon: Long, 
+      maxMemSize: Long,
       slaveActor: ActorRef) {
     
     logInfo("Trying to register BlockManager")
-    tell(RegisterBlockManager(blockManagerId, maxMemSize, maxTachyon, slaveActor))
+    tell(RegisterBlockManager(blockManagerId, maxMemSize, slaveActor))
     logInfo("Registered BlockManager")
   }
 
