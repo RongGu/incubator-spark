@@ -404,6 +404,24 @@ class BlockManagerSuite extends FunSuite with BeforeAndAfter with PrivateMethodT
     assert(store.memoryStore.contains(rdd(0, 2)), "rdd_0_2 was not in store")
     assert(store.memoryStore.contains(rdd(0, 3)), "rdd_0_3 was not in store")
   }
+  
+  test("tachyon storage") {
+    val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", false)
+    if (tachyonEnabled) {
+      store = new BlockManager("<driver>", actorSystem, master, serializer, 1200, conf)
+      val a1 = new Array[Byte](400)
+      val a2 = new Array[Byte](400)
+      val a3 = new Array[Byte](400)
+      store.putSingle("a1", a1, StorageLevel.TACHYON)
+      store.putSingle("a2", a2, StorageLevel.TACHYON)
+      store.putSingle("a3", a3, StorageLevel.TACHYON)
+      assert(store.getSingle("a2").isDefined, "a2 was in store")
+      assert(store.getSingle("a3").isDefined, "a3 was in store")
+      assert(store.getSingle("a1").isDefined, "a1 was in store")
+    } else {
+      info("tachyon storage test disabled.")
+    }
+  }
 
   test("on-disk storage") {
     store = new BlockManager("<driver>", actorSystem, master, serializer, 1200, conf)
