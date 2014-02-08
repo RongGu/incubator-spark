@@ -406,8 +406,8 @@ class BlockManagerSuite extends FunSuite with BeforeAndAfter with PrivateMethodT
   }
   
   test("tachyon storage") {
-    val tachyonEnabled = conf.getBoolean("spark.tachyon.enable", false)
-    if (tachyonEnabled) {
+    val tachyonUnitTestEnabled = conf.getBoolean("spark.test.tachyon.enable", false)
+    if (tachyonUnitTestEnabled) {
       store = new BlockManager("<driver>", actorSystem, master, serializer, 1200, conf)
       val a1 = new Array[Byte](400)
       val a2 = new Array[Byte](400)
