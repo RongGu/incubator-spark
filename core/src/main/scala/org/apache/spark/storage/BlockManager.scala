@@ -51,7 +51,6 @@ private[spark] class BlockManager(
   val shuffleBlockManager = new ShuffleBlockManager(this)
   val diskBlockManager = new DiskBlockManager(shuffleBlockManager,
     conf.get("spark.local.dir",  System.getProperty("java.io.tmpdir")))
-  
 
   private val blockInfo = new TimeStampedHashMap[BlockId, BlockInfo]
 
@@ -97,7 +96,7 @@ private[spark] class BlockManager(
   var asyncReregisterTask: Future[Unit] = null
   val asyncReregisterLock = new Object
   
-  private def getTachyonStore() : TachyonStore = {
+  private def getTachyonStore() : TachyonStore = synchronized {
    if(!tachyonInitialized) {
      initializeTachyonStore() 
    }
@@ -802,7 +801,7 @@ private[spark] class BlockManager(
       // Removals are idempotent in disk store and memory store. At worst, we get a warning.
       val removedFromMemory = memoryStore.remove(blockId)
       val removedFromDisk = diskStore.remove(blockId)
-      val removedFromTachyon = if (getTachyonStore() != null) getTachyonStore().remove(blockId) else true 
+      val removedFromTachyon = if (tachyonStore != null) getTachyonStore().remove(blockId) else true 
       if (!removedFromMemory && !removedFromDisk && !removedFromTachyon) {
         logWarning("Block " + blockId + " could not be removed as it was not found in either " +
           "the disk, memory or tachyon store")
