@@ -40,8 +40,8 @@ object SparkBuild extends Build {
   val HBASE_VERSION = "0.94.6"
 
   // Target JVM version
-  val SCALAC_JVM_VERSION = "jvm-1.7"
-  val JAVAC_JVM_VERSION = "1.7"
+  val SCALAC_JVM_VERSION = "jvm-1.6"
+  val JAVAC_JVM_VERSION = "1.6"
     
   lazy val root = Project("root", file("."), settings = rootSettings) aggregate(allProjects: _*)
 
@@ -282,7 +282,7 @@ object SparkBuild extends Build {
         "com.twitter"             %% "chill"            % "0.3.1",
         "com.twitter"              % "chill-java"       % "0.3.1",
         "com.typesafe"             % "config"           % "1.0.2",
-        "org.tachyonproject"	   % "tachyon" 		% "0.3.0" excludeAll(excludeKyro, excludeHadoop, excludeCurator, excludeJackson, excludeNetty, excludeAsm),
+        "org.tachyonproject"	   % "tachyon" 		% "0.4.0" excludeAll(excludeKyro, excludeHadoop, excludeCurator, excludeJackson, excludeNetty, excludeAsm),
         "com.clearspring.analytics" % "stream"          % "2.5.1"
       )
   )
