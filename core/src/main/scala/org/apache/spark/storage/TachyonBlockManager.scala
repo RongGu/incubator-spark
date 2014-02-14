@@ -64,7 +64,7 @@ private[spark] class TachyonBlockManager(
    * Otherwise, we assume the Block is mapped to a whole file identified by the BlockId directly.
    */
   def getBlockLocation(blockId: BlockId): TachyonFileSegment = {
-	val file = getFile(blockId.name)
+    val file = getFile(blockId.name)
     new TachyonFileSegment(file, 0, file.length())
   }
   
@@ -99,8 +99,9 @@ private[spark] class TachyonBlockManager(
       }
     }
     val filePath = subDir + "/" + filename
-    if(!client.exist(filePath))
+    if(!client.exist(filePath)) {
       client.createFile(filePath)
+    }
     val file = client.getFile(filePath)
     file
   }
@@ -147,7 +148,9 @@ private[spark] class TachyonBlockManager(
         logDebug("Shutdown hook called")
         tachyonDirs.foreach { tachyonDir =>
           try {
-            if (!Utils.hasRootAsShutdownDeleteDir(tachyonDir)) Utils.deleteRecursively(tachyonDir,client)
+            if (!Utils.hasRootAsShutdownDeleteDir(tachyonDir)) {
+              Utils.deleteRecursively(tachyonDir,client)
+            }
           } catch {
             case t: Throwable =>
               logError("Exception while deleting tachyon spark dir: " + tachyonDir, t)
