@@ -58,7 +58,7 @@ private[spark] class BlockManager(
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
   var tachyonInitialized = false
-  private[storage] var tachyonStore: TachyonStore = null;
+  private[storage] var tachyonStore: TachyonStore = null
   // If we use Netty for shuffle, start a new Netty-based shuffle sender service.
   private val nettyPort: Int = {
     val useNetty = conf.getBoolean("spark.shuffle.use.netty", false)
@@ -97,7 +97,7 @@ private[spark] class BlockManager(
   val asyncReregisterLock = new Object
   
   private def getTachyonStore() : TachyonStore = synchronized {
-   if(!tachyonInitialized) {
+   if (!tachyonInitialized) {
      initializeTachyonStore() 
    }
    this.tachyonStore
@@ -354,7 +354,7 @@ private[spark] class BlockManager(
         // Look for the block in Tachyon
         if (level.useTachyon) {
           logDebug("Getting block " + blockId + " from tachyon")
-          if(getTachyonStore().contains(blockId)) {
+          if (getTachyonStore().contains(blockId)) {
             getTachyonStore().getBytes(blockId) match {
               case Some(bytes) => {
                 if (!asValues) {
@@ -607,7 +607,7 @@ private[spark] class BlockManager(
                 case Left(newIterator) => valuesAfterPut = newIterator
               }
             } else if (level.useTachyon) {
-              // Save  to Tachyon.
+              // Save to Tachyon.
               val askForBytes = level.replication > 1
               val res = getTachyonStore().putValues(blockId, values, level, askForBytes)
               size = res.size
@@ -924,7 +924,7 @@ private[spark] class BlockManager(
     memoryStore.clear()
     diskStore.clear()
     if(tachyonStore != null) {
-      tachyonStore.clear()
+      tachyonStore.clear() 
     }
     metadataCleaner.cancel()
     broadcastCleaner.cancel()

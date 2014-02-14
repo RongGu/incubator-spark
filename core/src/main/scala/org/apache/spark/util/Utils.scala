@@ -169,7 +169,7 @@ private[spark] object Utils extends Logging {
   def registerShutdownDeleteDir(tachyonfile: TachyonFile) {
     val absolutePath = tachyonfile.getPath()
     shutdownDeleteTachyonPaths.synchronized {
-      shutdownDeleteTachyonPaths  += absolutePath
+      shutdownDeleteTachyonPaths += absolutePath
     }
   }
 

@@ -18,7 +18,6 @@
 package org.apache.spark.storage
 
 import java.io.File
-import tachyon.client.TachyonFile
 
 /**
  * References a particular segment of a file (potentially the entire file),

@@ -71,13 +71,13 @@ private class TachyonStore(
 
   private def putToTachyonStore(blockId: BlockId, _bytes: ByteBuffer) {
     // So that we do not modify the input offsets !
-    //duplicate does not copy buffer, so inexpensive
+    // duplicate does not copy buffer, so inexpensive
     val bytes = _bytes.duplicate()
     bytes.rewind()
     logDebug("Attempting to put block " + blockId + " into Tachyon")
     val startTime = System.currentTimeMillis
     val file = tachyonManager.getFile(blockId)
-    val os = file.getOutStream(WriteType.MUST_CACHE);
+    val os = file.getOutStream(WriteType.MUST_CACHE)
     os.write(bytes.array())
     os.close()
     val finishTime = System.currentTimeMillis
@@ -115,7 +115,7 @@ private class TachyonStore(
     val file = tachyonManager.getFile(blockId)
     val is = file.getInStream(ReadType.CACHE)
     var buffer : ByteBuffer = null
-    if(is != null){
+    if (is != null){
       val size = segment.length - segment.offset
       val bs = new Array[Byte](size.asInstanceOf[Int])
       is.read(bs, segment.offset.asInstanceOf[Int] , size.asInstanceOf[Int])

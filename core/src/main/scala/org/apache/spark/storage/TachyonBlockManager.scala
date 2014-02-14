@@ -46,7 +46,7 @@ private[spark] class TachyonBlockManager(
 
   val client = if (master != null && master != "") TachyonFS.get(master) else null
     
-  private val MAX_DIR_CREATION_ATTEMPTS: Int = 10
+  private val MAX_DIR_CREATION_ATTEMPTS = 10
   private val subDirsPerTachyonDir = 
     shuffleManager.conf.get("spark.tachyonStore.subDirectories", "64").toInt
 
@@ -59,7 +59,7 @@ private[spark] class TachyonBlockManager(
   addShutdownHook()
 
   /**
-   * Returns the phyiscal tachyon file segment in which the given BlockId is located.
+   * Returns the physical tachyon file segment in which the given BlockId is located.
    * If the BlockId has been mapped to a specific FileSegment, that will be returned.
    * Otherwise, we assume the Block is mapped to a whole file identified by the BlockId directly.
    */

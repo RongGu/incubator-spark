@@ -393,7 +393,7 @@ object BlockManagerMasterActor {
         }
         if (blockStatus.storageLevel.useTachyon) {
           logInfo("Removed %s on %s on tachyon (size: %s)".format(
-            blockId, blockManagerId.hostPort, Utils.bytesToString(blockStatus.tachyonSize )))
+            blockId, blockManagerId.hostPort, Utils.bytesToString(blockStatus.tachyonSize)))
         }
       }
     }

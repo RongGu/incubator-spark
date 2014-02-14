@@ -21,7 +21,7 @@ import java.io.{Externalizable, IOException, ObjectInput, ObjectOutput}
 
 /**
  * Flags for controlling the storage of an RDD. Each StorageLevel records whether to use memory,
- * or tachyon, whether to drop the RDD to disk if it falls out of memory or tachyon , whether to 
+ * or Tachyon, whether to drop the RDD to disk if it falls out of memory or Tachyon , whether to 
  * keep the data in memory in a serialized format, and whether to replicate the RDD partitions on 
  * multiple nodes.
  * The [[org.apache.spark.storage.StorageLevel$]] singleton object contains some static constants
@@ -139,7 +139,7 @@ object StorageLevel {
   
   /** Create a new StorageLevel object */
   def apply(useDisk: Boolean, useMemory: Boolean, useTachyon: Boolean, 
-    deserialized: Boolean, replication: Int = 1) =getCachedStorageLevel(
+    deserialized: Boolean, replication: Int = 1) = getCachedStorageLevel(
           new StorageLevel(useDisk, useMemory, useTachyon, deserialized, replication))
 
   /** Create a new StorageLevel object from its integer representation */

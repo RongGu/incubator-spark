@@ -40,7 +40,7 @@ object SparkTachyonPi {
     val count = rdd.map { i =>
       val x = random * 2 - 1
       val y = random * 2 - 1
-      if (x*x + y*y < 1) 1 else 0
+      if (x * x + y * y < 1) 1 else 0
     }.reduce(_ + _)
     println("1- Pi is roughly " + 4.0 * count / n)
     
@@ -49,7 +49,7 @@ object SparkTachyonPi {
     val count2 = rdd2.map { i =>
       val x = random * 2 - 1
       val y = random * 2 - 1
-      if (x*x + y*y < 1) 1 else 0
+      if (x * x + y * y < 1) 1 else 0
     }.reduce(_ + _)
     println("2- Pi is roughly " + 4.0 * count2 / n)
     
