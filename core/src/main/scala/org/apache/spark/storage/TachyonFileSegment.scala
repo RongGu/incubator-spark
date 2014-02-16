@@ -25,7 +25,7 @@ import tachyon.client.TachyonFile
  * based off an offset and a length.
  */
 
-private[spark] class TachyonFileSegment(val file: TachyonFile, val offset: Long, val length : Long) 
+private[spark] class TachyonFileSegment(val file: TachyonFile, val offset: Long, val length: Long) 
 {
   override def toString = "(name=%s, offset=%d, length=%d)".format(file.getPath(), offset, length)
 }

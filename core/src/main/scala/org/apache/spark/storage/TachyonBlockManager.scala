@@ -45,15 +45,19 @@ private[spark] class TachyonBlockManager(
   extends TachyonFilePathResolver with Logging {
 
   val client = if (master != null && master != "") TachyonFS.get(master) else null
+  if (client == null) {
+    logError("Failed to connect to the Tachyon as the master address is not configured")
+     System.exit(ExecutorExitCode.DISK_STORE_FAILED_TO_CREATE_DIR)
+  }
     
   private val MAX_DIR_CREATION_ATTEMPTS = 10
   private val subDirsPerTachyonDir = 
     shuffleManager.conf.get("spark.tachyonStore.subDirectories", "64").toInt
 
-  // Create one tachyon directory for each path mentioned in spark.tachyon.dir; then, inside this
+  // Create one Tachyon directory for each path mentioned in spark.tachyon.dir; then, inside this
   // directory, create multiple subdirectories that we will hash files into, in order to avoid
-  // having really large inodes at the top level.
-  private val tachyonDirs: Array[TachyonFile] = createLocalDirs()
+  // having really large inodes at the top level in Tachyon.
+  private val tachyonDirs: Array[TachyonFile] = createTachyonDirs()
   private val subDirs = Array.fill(tachyonDirs.length)(new Array[TachyonFile](subDirsPerTachyonDir))
 
   addShutdownHook()
@@ -72,7 +76,7 @@ private[spark] class TachyonBlockManager(
     client.delete(file.getPath(), false)
   }
   
-  def existFile(file: TachyonFile): Boolean = {
+  def fileExists(file: TachyonFile): Boolean = {
     client.exist(file.getPath())
   }
 
@@ -108,7 +112,7 @@ private[spark] class TachyonBlockManager(
 
   def getFile(blockId: BlockId): TachyonFile = getFile(blockId.name)
 
-  private def createLocalDirs(): Array[TachyonFile] = {
+  private def createTachyonDirs(): Array[TachyonFile] = {
     logDebug("Creating tachyon directories at root dirs '" + rootDirs + "'")
     val dateFormat = new SimpleDateFormat("yyyyMMddHHmmss")
     rootDirs.split(",").map { rootDir =>

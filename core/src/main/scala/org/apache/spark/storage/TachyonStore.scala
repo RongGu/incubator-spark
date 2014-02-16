@@ -88,7 +88,7 @@ private class TachyonStore(
   override def remove(blockId: BlockId): Boolean = {
     val fileSegment = tachyonManager.getBlockLocation(blockId)
     val file = fileSegment.file
-    if (tachyonManager.existFile(file) && file.length() == fileSegment.length) {
+    if (tachyonManager.fileExists(file) && file.length() == fileSegment.length) {
       tachyonManager.removeFile(file)
     } else {
       if (fileSegment.length < file.length()) {
@@ -127,6 +127,6 @@ private class TachyonStore(
   override def contains(blockId: BlockId): Boolean = {
     val fileSegment = tachyonManager.getBlockLocation(blockId)
     val file = fileSegment.file
-    tachyonManager.existFile(file)
+    tachyonManager.fileExists(file)
   }
 }
