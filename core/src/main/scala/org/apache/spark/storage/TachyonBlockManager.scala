@@ -149,7 +149,7 @@ private[spark] class TachyonBlockManager(
         tachyonDirs.foreach { tachyonDir =>
           try {
             if (!Utils.hasRootAsShutdownDeleteDir(tachyonDir)) {
-              Utils.deleteRecursively(tachyonDir,client)
+              Utils.deleteRecursively(tachyonDir, client)
             }
           } catch {
             case t: Throwable =>

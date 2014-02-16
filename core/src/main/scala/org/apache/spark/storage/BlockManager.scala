@@ -58,7 +58,7 @@ private[spark] class BlockManager(
   private[storage] val diskStore = new DiskStore(this, diskBlockManager)
   
   var tachyonInitialized = false
-  private[storage] var tachyonStore: TachyonStore = null
+  private[storage] var innerTachyonStore: TachyonStore = null
   // If we use Netty for shuffle, start a new Netty-based shuffle sender service.
   private val nettyPort: Int = {
     val useNetty = conf.getBoolean("spark.shuffle.use.netty", false)
@@ -96,21 +96,20 @@ private[spark] class BlockManager(
   var asyncReregisterTask: Future[Unit] = null
   val asyncReregisterLock = new Object
   
-  private def getTachyonStore() : TachyonStore = synchronized {
+  private def tachyonStore : TachyonStore = synchronized {
    if (!tachyonInitialized) {
      initializeTachyonStore() 
    }
-   this.tachyonStore
+   this.innerTachyonStore
   }
   
   private def initializeTachyonStore() {
-    val tachyonStorePath = conf.get(
-    "spark.tachyonstore.dir",
-    System.getProperty("java.io.tmpdir")) + "/" + appId + "/" + this.executorId 
+    val storeDir = conf.get("spark.tachyonstore.dir", System.getProperty("java.io.tmpdir"))
+    val tachyonStorePath = s"${storeDir}/${appId}/${this.executorId}"
     val tachyonMaster = conf.get("spark.tachyonmaster.address",  "localhost:19998")
     val tachyonBlockManager = new TachyonBlockManager(
       shuffleBlockManager, tachyonStorePath, tachyonMaster)
-    this.tachyonStore = new TachyonStore(this, tachyonBlockManager)
+    this.innerTachyonStore = new TachyonStore(this, tachyonBlockManager)
     this.tachyonInitialized = true
   }
   
@@ -255,11 +254,11 @@ private[spark] class BlockManager(
         case level =>
           val inMem = level.useMemory && memoryStore.contains(blockId)
           val onDisk = level.useDisk && diskStore.contains(blockId)
-          val inTachyon = level.useTachyon && getTachyonStore().contains(blockId)
+          val inTachyon = level.useTachyon && tachyonStore.contains(blockId)
           val storageLevel = StorageLevel(
             onDisk, inMem, inTachyon, level.deserialized, level.replication)
           val memSize = if (inMem) memoryStore.getSize(blockId) else droppedMemorySize
-          val tachyonSize = if (inTachyon) getTachyonStore().getSize(blockId) else droppedMemorySize
+          val tachyonSize = if (inTachyon) tachyonStore.getSize(blockId) else droppedMemorySize
           val diskSize = if (onDisk) diskStore.getSize(blockId) else 0L
           (storageLevel, memSize, diskSize, tachyonSize, info.tellMaster)
       }
@@ -354,8 +353,8 @@ private[spark] class BlockManager(
         // Look for the block in Tachyon
         if (level.useTachyon) {
           logDebug("Getting block " + blockId + " from tachyon")
-          if (getTachyonStore().contains(blockId)) {
-            getTachyonStore().getBytes(blockId) match {
+          if (tachyonStore.contains(blockId)) {
+            tachyonStore.getBytes(blockId) match {
               case Some(bytes) => {
                 if (!asValues) {
                   return Some(bytes)
@@ -609,7 +608,7 @@ private[spark] class BlockManager(
             } else if (level.useTachyon) {
               // Save to Tachyon.
               val askForBytes = level.replication > 1
-              val res = getTachyonStore().putValues(blockId, values, level, askForBytes)
+              val res = tachyonStore.putValues(blockId, values, level, askForBytes)
               size = res.size
               res.data match {
                 case Right(newBytes) => bytesAfterPut = newBytes
@@ -630,14 +629,12 @@ private[spark] class BlockManager(
           case Right(bytes) => {
             bytes.rewind()
             // Store it only in memory at first, even if useDisk is also set to true
-            (if (level.useMemory) {
-               memoryStore
-             } else if (level.useTachyon) {
-               getTachyonStore()
-             } else {
-               diskStore
-             }
-            ).putBytes(blockId, bytes, level)
+            val store = level match {
+              case _ if level.useMemory => memoryStore
+              case _ if level.useTachyon => tachyonStore
+              case _ => diskStore
+            } 
+            store.putBytes(blockId, bytes, level)
             size = bytes.limit
           }
         }
@@ -807,7 +804,7 @@ private[spark] class BlockManager(
       val removedFromMemory = memoryStore.remove(blockId)
       val removedFromDisk = diskStore.remove(blockId)
       val removedFromTachyon = 
-        if (tachyonStore != null) getTachyonStore().remove(blockId) else true 
+        if (tachyonInitialized == true) tachyonStore.remove(blockId) else false
       if (!removedFromMemory && !removedFromDisk && !removedFromTachyon) {
         logWarning("Block " + blockId + " could not be removed as it was not found in either " +
           "the disk, memory or tachyon store")
@@ -847,7 +844,7 @@ private[spark] class BlockManager(
             diskStore.remove(id)
           }
           if (level.useTachyon) {
-            getTachyonStore().remove(id)
+            tachyonStore.remove(id)
           }
           iterator.remove()
           logInfo("Dropped block " + id)
@@ -923,7 +920,7 @@ private[spark] class BlockManager(
     blockInfo.clear()
     memoryStore.clear()
     diskStore.clear()
-    if(tachyonStore != null) {
+    if(tachyonInitialized == true) {
       tachyonStore.clear() 
     }
     metadataCleaner.cancel()
