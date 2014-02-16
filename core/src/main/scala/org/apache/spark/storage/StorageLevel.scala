@@ -38,7 +38,7 @@ class StorageLevel private(
 
   // TODO: Also add fields for caching priority, dataset ID, and flushing.
   private def this(flags: Int, replication: Int) {
-    this((flags & 4) != 0, (flags & 2) != 0, (flags & 8) != 0, (flags & 1) != 0, replication)
+    this((flags & 8) != 0, (flags & 4) != 0, (flags & 2) != 0, (flags & 1) != 0, replication)
   }
 
   def this() = this(false, true, false, false)  // For deserialization
@@ -70,13 +70,13 @@ class StorageLevel private(
   def toInt: Int = {
     var ret = 0
     if (useDisk_) {
-      ret |= 4
+      ret |= 8
     }
     if (useMemory_) {
-      ret |= 2
+      ret |= 4
     }
     if (useTachyon_) {
-      ret |= 8
+      ret |= 2
     }
     if (deserialized_) {
       ret |= 1
@@ -91,9 +91,9 @@ class StorageLevel private(
 
   override def readExternal(in: ObjectInput) {
     val flags = in.readByte()
-    useDisk_ = (flags & 4) != 0
-    useMemory_ = (flags & 2) != 0
-    useTachyon_ = (flags & 8) != 0
+    useDisk_ = (flags & 8) != 0
+    useMemory_ = (flags & 4) != 0
+    useTachyon_ = (flags & 2) != 0
     deserialized_ = (flags & 1) != 0
     replication_ = in.readByte()
   }
