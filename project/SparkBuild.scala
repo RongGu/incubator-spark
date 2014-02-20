@@ -44,7 +44,7 @@ object SparkBuild extends Build {
   // Target JVM version
   val SCALAC_JVM_VERSION = "jvm-1.6"
   val JAVAC_JVM_VERSION = "1.6"
-    
+
   lazy val root = Project("root", file("."), settings = rootSettings) aggregate(allProjects: _*)
 
   lazy val core = Project("core", file("core"), settings = coreSettings)
@@ -242,7 +242,6 @@ object SparkBuild extends Build {
   val excludeNetty = ExclusionRule(organization = "org.jboss.netty")
   val excludeAsm = ExclusionRule(organization = "asm")
   val excludeSnappy = ExclusionRule(organization = "org.xerial.snappy")
-  val excludeKyro = ExclusionRule(organization = "de.javakaffee")
   val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
   val excludeCurator = ExclusionRule(organization = "org.apache.curator")
 
@@ -283,8 +282,8 @@ object SparkBuild extends Build {
         "com.codahale.metrics"     % "metrics-graphite" % "3.0.0",
         "com.twitter"             %% "chill"            % "0.3.1",
         "com.twitter"              % "chill-java"       % "0.3.1",
-        "org.tachyonproject"	   % "tachyon" 		% "0.4.0" excludeAll(excludeKyro, excludeHadoop, excludeCurator, excludeJackson, excludeNetty, excludeAsm),
-        "com.clearspring.analytics" % "stream"          % "2.5.1"
+        "org.tachyonproject"       % "tachyon"          % "0.4.0" excludeAll(excludeHadoop, excludeCurator, excludeNetty),
+        "com.clearspring.analytics"% "stream"           % "2.5.1"
       )
   )
 
