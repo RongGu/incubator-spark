@@ -19,7 +19,7 @@ package org.apache.spark.storage
 
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.{Date, Random}
+import java.util.{Date, Random, UUID}
 
 import org.apache.spark.Logging
 import org.apache.spark.executor.ExecutorExitCode
@@ -29,8 +29,6 @@ import org.apache.spark.util.Utils
 /**
  * Creates and maintains the logical mapping between logical blocks and physical on-disk
  * locations. By default, one block is mapped to one file with a name given by its BlockId.
- * However, it is also possible to have a block map to only a segment of a file, by calling
- * mapBlockToFileSegment().
  *
  * @param rootDirs The directories to use for storing block files. Data will be hashed among these.
  */
@@ -50,7 +48,7 @@ private[spark] class DiskBlockManager(shuffleManager: ShuffleBlockManager, rootD
   addShutdownHook()
 
   /**
-   * Returns the phyiscal file segment in which the given BlockId is located.
+   * Returns the physical file segment in which the given BlockId is located.
    * If the BlockId has been mapped to a specific FileSegment, that will be returned.
    * Otherwise, we assume the Block is mapped to a whole file identified by the BlockId directly.
    */
@@ -89,6 +87,15 @@ private[spark] class DiskBlockManager(shuffleManager: ShuffleBlockManager, rootD
   }
 
   def getFile(blockId: BlockId): File = getFile(blockId.name)
+
+  /** Produces a unique block id and File suitable for intermediate results. */
+  def createTempBlock(): (TempBlockId, File) = {
+    var blockId = new TempBlockId(UUID.randomUUID())
+    while (getFile(blockId).exists()) {
+      blockId = new TempBlockId(UUID.randomUUID())
+    }
+    (blockId, getFile(blockId))
+  }
 
   private def createLocalDirs(): Array[File] = {
     logDebug("Creating local directories at root dirs '" + rootDirs + "'")

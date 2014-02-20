@@ -21,6 +21,8 @@ import Keys._
 import sbtassembly.Plugin._
 import AssemblyKeys._
 import scala.util.Properties
+import org.scalastyle.sbt.ScalastylePlugin.{Settings => ScalaStyleSettings}
+
 // For Sonatype publishing
 //import com.jsuereth.pgp.sbtplugin.PgpKeys._
 
@@ -48,18 +50,20 @@ object SparkBuild extends Build {
   lazy val core = Project("core", file("core"), settings = coreSettings)
 
   lazy val repl = Project("repl", file("repl"), settings = replSettings)
-    .dependsOn(core, bagel, mllib)
+    .dependsOn(core, graphx, bagel, mllib)
 
   lazy val tools = Project("tools", file("tools"), settings = toolsSettings) dependsOn(core) dependsOn(streaming)
 
   lazy val bagel = Project("bagel", file("bagel"), settings = bagelSettings) dependsOn(core)
+
+  lazy val graphx = Project("graphx", file("graphx"), settings = graphxSettings) dependsOn(core)
 
   lazy val streaming = Project("streaming", file("streaming"), settings = streamingSettings) dependsOn(core)
 
   lazy val mllib = Project("mllib", file("mllib"), settings = mllibSettings) dependsOn(core)
 
   lazy val assemblyProj = Project("assembly", file("assembly"), settings = assemblyProjSettings)
-    .dependsOn(core, bagel, mllib, repl, streaming) dependsOn(maybeYarn: _*)
+    .dependsOn(core, graphx, bagel, mllib, repl, streaming) dependsOn(maybeYarn: _*)
 
   lazy val assembleDeps = TaskKey[Unit]("assemble-deps", "Build assembly of dependencies and packages Spark projects")
 
@@ -90,7 +94,7 @@ object SparkBuild extends Build {
   lazy val maybeYarn = if (isYarnEnabled) Seq[ClasspathDependency](if (isNewHadoop) yarn else yarnAlpha) else Seq[ClasspathDependency]()
   lazy val maybeYarnRef = if (isYarnEnabled) Seq[ProjectReference](if (isNewHadoop) yarn else yarnAlpha) else Seq[ProjectReference]()
 
-  lazy val externalTwitter = Project("external-twitter", file("external/twitter"), settings = twitterSettings) 
+  lazy val externalTwitter = Project("external-twitter", file("external/twitter"), settings = twitterSettings)
     .dependsOn(streaming % "compile->compile;test->test")
 
   lazy val externalKafka = Project("external-kafka", file("external/kafka"), settings = kafkaSettings)
@@ -98,27 +102,27 @@ object SparkBuild extends Build {
 
   lazy val externalFlume = Project("external-flume", file("external/flume"), settings = flumeSettings)
     .dependsOn(streaming % "compile->compile;test->test")
-  
+
   lazy val externalZeromq = Project("external-zeromq", file("external/zeromq"), settings = zeromqSettings)
     .dependsOn(streaming % "compile->compile;test->test")
-  
+
   lazy val externalMqtt = Project("external-mqtt", file("external/mqtt"), settings = mqttSettings)
     .dependsOn(streaming % "compile->compile;test->test")
 
   lazy val allExternal = Seq[ClasspathDependency](externalTwitter, externalKafka, externalFlume, externalZeromq, externalMqtt)
   lazy val allExternalRefs = Seq[ProjectReference](externalTwitter, externalKafka, externalFlume, externalZeromq, externalMqtt)
-  
+
   lazy val examples = Project("examples", file("examples"), settings = examplesSettings)
-    .dependsOn(core, mllib, bagel, streaming, externalTwitter) dependsOn(allExternal: _*)
+    .dependsOn(core, mllib, graphx, bagel, streaming, externalTwitter) dependsOn(allExternal: _*)
 
   // Everything except assembly, tools and examples belong to packageProjects
-  lazy val packageProjects = Seq[ProjectReference](core, repl, bagel, streaming, mllib) ++ maybeYarnRef
+  lazy val packageProjects = Seq[ProjectReference](core, repl, bagel, streaming, mllib, graphx) ++ maybeYarnRef
 
-  lazy val allProjects = packageProjects ++ allExternalRefs ++ Seq[ProjectReference](examples, tools, assemblyProj) 
+  lazy val allProjects = packageProjects ++ allExternalRefs ++ Seq[ProjectReference](examples, tools, assemblyProj)
 
   def sharedSettings = Defaults.defaultSettings ++ Seq(
     organization       := "org.apache.spark",
-    version            := "0.9.0-incubating-SNAPSHOT",
+    version            := "1.0.0-incubating-SNAPSHOT",
     scalaVersion       := "2.10.3",
     scalacOptions := Seq("-Xmax-classfile-name", "120", "-unchecked", "-deprecation",
       "-target:" + SCALAC_JVM_VERSION),
@@ -136,6 +140,13 @@ object SparkBuild extends Build {
     javaOptions += "-Xmx3g",
     // Show full stack trace and duration in test cases.
     testOptions in Test += Tests.Argument("-oDF"),
+    // Remove certain packages from Scaladoc
+    scalacOptions in (Compile,doc) := Seq("-skip-packages", Seq(
+      "akka",
+      "org.apache.spark.network",
+      "org.apache.spark.deploy",
+      "org.apache.spark.util.collection"
+      ).mkString(":")),
 
     // Only allow one test at a time, even across projects, since they run in the same JVM
     concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
@@ -203,12 +214,13 @@ object SparkBuild extends Build {
         "org.eclipse.jetty.orbit" % "javax.servlet" % "2.5.0.v201103041518" artifacts Artifact("javax.servlet", "jar", "jar"),
         "org.scalatest"    %% "scalatest"       % "1.9.1"  % "test",
         "org.scalacheck"   %% "scalacheck"      % "1.10.0" % "test",
-        "com.novocode"      % "junit-interface" % "0.9"    % "test",
+        "com.novocode"      % "junit-interface" % "0.10"   % "test",
         "org.easymock"      % "easymock"        % "3.1"    % "test",
         "org.mockito"       % "mockito-all"     % "1.8.5"  % "test",
         "commons-io"        % "commons-io"      % "2.4"    % "test"
     ),
 
+    testOptions += Tests.Argument(TestFrameworks.JUnit, "-v", "-a"),
     parallelExecution := true,
     /* Workaround for issue #206 (fixed after SBT 0.11.0) */
     watchTransitiveSources <<= Defaults.inDependencies[Task[Seq[File]]](watchSources.task,
@@ -221,7 +233,7 @@ object SparkBuild extends Build {
     publishMavenStyle in MavenCompile := true,
     publishLocal in MavenCompile <<= publishTask(publishLocalConfiguration in MavenCompile, deliverLocal),
     publishLocalBoth <<= Seq(publishLocal in MavenCompile, publishLocal).dependOn
-  ) ++ net.virtualvoid.sbt.graph.Plugin.graphSettings
+  ) ++ net.virtualvoid.sbt.graph.Plugin.graphSettings ++ ScalaStyleSettings
 
   val slf4jVersion = "1.7.2"
 
@@ -230,6 +242,8 @@ object SparkBuild extends Build {
   val excludeNetty = ExclusionRule(organization = "org.jboss.netty")
   val excludeAsm = ExclusionRule(organization = "asm")
   val excludeSnappy = ExclusionRule(organization = "org.xerial.snappy")
+  val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
+  val excludeCurator = ExclusionRule(organization = "org.apache.curator")
 
   def coreSettings = sharedSettings ++ Seq(
     name := "spark-core",
@@ -268,8 +282,8 @@ object SparkBuild extends Build {
         "com.codahale.metrics"     % "metrics-graphite" % "3.0.0",
         "com.twitter"             %% "chill"            % "0.3.1",
         "com.twitter"              % "chill-java"       % "0.3.1",
-        "com.typesafe"             % "config"           % "1.0.2",
-        "com.clearspring.analytics" % "stream"          % "2.5.1"
+        "org.tachyonproject"       % "tachyon"          % "0.4.0" excludeAll(excludeHadoop, excludeCurator, excludeNetty),
+        "com.clearspring.analytics"% "stream"           % "2.5.1"
       )
   )
 
@@ -307,6 +321,13 @@ object SparkBuild extends Build {
     name := "spark-tools"
   ) ++ assemblySettings ++ extraAssemblySettings
 
+  def graphxSettings = sharedSettings ++ Seq(
+    name := "spark-graphx",
+    libraryDependencies ++= Seq(
+      "org.jblas" % "jblas" % "1.2.3"
+    )
+  )
+
   def bagelSettings = sharedSettings ++ Seq(
     name := "spark-bagel"
   )
@@ -321,7 +342,7 @@ object SparkBuild extends Build {
   def streamingSettings = sharedSettings ++ Seq(
     name := "spark-streaming",
     libraryDependencies ++= Seq(
-      "commons-io" % "commons-io" % "2.4" 
+      "commons-io" % "commons-io" % "2.4"
     )
   )
 
@@ -388,19 +409,19 @@ object SparkBuild extends Build {
       "org.twitter4j" % "twitter4j-stream" % "3.0.3" excludeAll(excludeNetty)
     )
   )
-  
+
   def kafkaSettings() = sharedSettings ++ Seq(
     name := "spark-streaming-kafka",
     libraryDependencies ++= Seq(
       "com.github.sgroschupf"    % "zkclient"   % "0.1"          excludeAll(excludeNetty),
-      "com.sksamuel.kafka"      %% "kafka"      % "0.8.0-beta1"
+      "org.apache.kafka"        %% "kafka"      % "0.8.0"
         exclude("com.sun.jdmk", "jmxtools")
         exclude("com.sun.jmx", "jmxri")
         exclude("net.sf.jopt-simple", "jopt-simple")
         excludeAll(excludeNetty)
     )
   )
-  
+
   def flumeSettings() = sharedSettings ++ Seq(
     name := "spark-streaming-flume",
     libraryDependencies ++= Seq(

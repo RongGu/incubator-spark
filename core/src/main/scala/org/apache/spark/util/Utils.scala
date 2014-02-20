@@ -31,32 +31,37 @@ import scala.reflect.ClassTag
 import com.google.common.io.Files
 import com.google.common.util.concurrent.ThreadFactoryBuilder
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, FileSystem, FileUtil}
+import org.apache.hadoop.io._
 
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
 import org.apache.spark.deploy.SparkHadoopUtil
 import java.nio.ByteBuffer
-import org.apache.spark.{SparkConf, SparkContext, SparkException, Logging}
+import org.apache.spark.{SparkConf, SparkException, Logging}
 
+import tachyon.client.TachyonFile
+import tachyon.client.TachyonFS
 
 /**
  * Various utility methods used by Spark.
  */
 private[spark] object Utils extends Logging {
+
   /** Serialize an object using Java serialization */
   def serialize[T](o: T): Array[Byte] = {
     val bos = new ByteArrayOutputStream()
     val oos = new ObjectOutputStream(bos)
     oos.writeObject(o)
     oos.close()
-    return bos.toByteArray
+    bos.toByteArray
   }
 
   /** Deserialize an object using Java serialization */
   def deserialize[T](bytes: Array[Byte]): T = {
     val bis = new ByteArrayInputStream(bytes)
     val ois = new ObjectInputStream(bis)
-    return ois.readObject.asInstanceOf[T]
+    ois.readObject.asInstanceOf[T]
   }
 
   /** Deserialize an object using Java serialization and the given ClassLoader */
@@ -66,7 +71,7 @@ private[spark] object Utils extends Logging {
       override def resolveClass(desc: ObjectStreamClass) =
         Class.forName(desc.getName, false, loader)
     }
-    return ois.readObject.asInstanceOf[T]
+    ois.readObject.asInstanceOf[T]
   }
 
   /** Deserialize a Long value (used for {@link org.apache.spark.api.python.PythonPartitioner}) */
@@ -83,7 +88,8 @@ private[spark] object Utils extends Logging {
   }
 
   /** Serialize via nested stream using specific serializer */
-  def serializeViaNestedStream(os: OutputStream, ser: SerializerInstance)(f: SerializationStream => Unit) = {
+  def serializeViaNestedStream(os: OutputStream, ser: SerializerInstance)(
+      f: SerializationStream => Unit) = {
     val osWrapper = ser.serializeStream(new OutputStream {
       def write(b: Int) = os.write(b)
 
@@ -97,7 +103,8 @@ private[spark] object Utils extends Logging {
   }
 
   /** Deserialize via nested stream using specific serializer */
-  def deserializeViaNestedStream(is: InputStream, ser: SerializerInstance)(f: DeserializationStream => Unit) = {
+  def deserializeViaNestedStream(is: InputStream, ser: SerializerInstance)(
+      f: DeserializationStream => Unit) = {
     val isWrapper = ser.deserializeStream(new InputStream {
       def read(): Int = is.read()
 
@@ -144,16 +151,25 @@ private[spark] object Utils extends Logging {
         i += 1
       }
     }
-    return buf
+    buf
   }
 
   private val shutdownDeletePaths = new scala.collection.mutable.HashSet[String]()
+  private val shutdownDeleteTachyonPaths = new scala.collection.mutable.HashSet[String]()
 
   // Register the path to be deleted via shutdown hook
   def registerShutdownDeleteDir(file: File) {
     val absolutePath = file.getAbsolutePath()
     shutdownDeletePaths.synchronized {
       shutdownDeletePaths += absolutePath
+    }
+  }
+  
+  // Register the tachyon path to be deleted via shutdown hook
+  def registerShutdownDeleteDir(tachyonfile: TachyonFile) {
+    val absolutePath = tachyonfile.getPath()
+    shutdownDeleteTachyonPaths.synchronized {
+      shutdownDeleteTachyonPaths += absolutePath
     }
   }
 
@@ -164,12 +180,36 @@ private[spark] object Utils extends Logging {
       shutdownDeletePaths.contains(absolutePath)
     }
   }
+  
+  // Is the path already registered to be deleted via a shutdown hook ?
+  def hasShutdownDeleteTachyonDir(file: TachyonFile): Boolean = {
+    val absolutePath = file.getPath()
+    shutdownDeletePaths.synchronized {
+      shutdownDeletePaths.contains(absolutePath)
+    }
+  }
 
   // Note: if file is child of some registered path, while not equal to it, then return true;
   // else false. This is to ensure that two shutdown hooks do not try to delete each others
   // paths - resulting in IOException and incomplete cleanup.
   def hasRootAsShutdownDeleteDir(file: File): Boolean = {
     val absolutePath = file.getAbsolutePath()
+    val retval = shutdownDeletePaths.synchronized {
+      shutdownDeletePaths.find { path =>
+        !absolutePath.equals(path) && absolutePath.startsWith(path)
+      }.isDefined
+    }
+    if (retval) {
+      logInfo("path = " + file + ", already present as root for deletion.")
+    }
+    retval
+  }
+  
+  // Note: if file is child of some registered path, while not equal to it, then return true;
+  // else false. This is to ensure that two shutdown hooks do not try to delete each others
+  // paths - resulting in Exception and incomplete cleanup.
+  def hasRootAsShutdownDeleteDir(file: TachyonFile): Boolean = {
+    val absolutePath = file.getPath()
     val retval = shutdownDeletePaths.synchronized {
       shutdownDeletePaths.find { path =>
         !absolutePath.equals(path) && absolutePath.startsWith(path)
@@ -244,6 +284,7 @@ private[spark] object Utils extends Logging {
     val tempFile =  File.createTempFile("fetchFileTemp", null, new File(tempDir))
     val targetFile = new File(targetDir, filename)
     val uri = new URI(url)
+    val fileOverwrite = conf.getBoolean("spark.files.overwrite", false)
     uri.getScheme match {
       case "http" | "https" | "ftp" =>
         logInfo("Fetching " + url + " to " + tempFile)
@@ -251,47 +292,65 @@ private[spark] object Utils extends Logging {
         val out = new FileOutputStream(tempFile)
         Utils.copyStream(in, out, true)
         if (targetFile.exists && !Files.equal(tempFile, targetFile)) {
-          tempFile.delete()
-          throw new SparkException(
-            "File " + targetFile + " exists and does not match contents of" + " " + url)
-        } else {
-          Files.move(tempFile, targetFile)
+          if (fileOverwrite) {
+            targetFile.delete()
+            logInfo(("File %s exists and does not match contents of %s, " +
+              "replacing it with %s").format(targetFile, url, url))
+          } else {
+            tempFile.delete()
+            throw new SparkException(
+              "File " + targetFile + " exists and does not match contents of" + " " + url)
+          }
         }
+        Files.move(tempFile, targetFile)
       case "file" | null =>
         // In the case of a local file, copy the local file to the target directory.
         // Note the difference between uri vs url.
         val sourceFile = if (uri.isAbsolute) new File(uri) else new File(url)
+        var shouldCopy = true
         if (targetFile.exists) {
-          // If the target file already exists, warn the user if
           if (!Files.equal(sourceFile, targetFile)) {
-            throw new SparkException(
-              "File " + targetFile + " exists and does not match contents of" + " " + url)
+            if (fileOverwrite) {
+              targetFile.delete()
+              logInfo(("File %s exists and does not match contents of %s, " +
+                "replacing it with %s").format(targetFile, url, url))
+            } else {
+              throw new SparkException(
+                "File " + targetFile + " exists and does not match contents of" + " " + url)
+            }
           } else {
             // Do nothing if the file contents are the same, i.e. this file has been copied
             // previously.
             logInfo(sourceFile.getAbsolutePath + " has been previously copied to "
               + targetFile.getAbsolutePath)
+            shouldCopy = false
           }
-        } else {
+        }
+
+        if (shouldCopy) {
           // The file does not exist in the target directory. Copy it there.
           logInfo("Copying " + sourceFile.getAbsolutePath + " to " + targetFile.getAbsolutePath)
           Files.copy(sourceFile, targetFile)
         }
       case _ =>
         // Use the Hadoop filesystem library, which supports file://, hdfs://, s3://, and others
-        val uri = new URI(url)
         val conf = SparkHadoopUtil.get.newConfiguration()
         val fs = FileSystem.get(uri, conf)
         val in = fs.open(new Path(uri))
         val out = new FileOutputStream(tempFile)
         Utils.copyStream(in, out, true)
         if (targetFile.exists && !Files.equal(tempFile, targetFile)) {
-          tempFile.delete()
-          throw new SparkException("File " + targetFile + " exists and does not match contents of" +
-            " " + url)
-        } else {
-          Files.move(tempFile, targetFile)
+          if (fileOverwrite) {
+            targetFile.delete()
+            logInfo(("File %s exists and does not match contents of %s, " +
+              "replacing it with %s").format(targetFile, url, url))
+          } else {
+            tempFile.delete()
+            throw new SparkException(
+              "File " + targetFile + " exists and does not match contents of" + " " + url)
+          }
         }
+        Files.move(tempFile, targetFile)
     }
     // Decompress the file if it's a .tar or .tar.gz
     if (filename.endsWith(".tar.gz") || filename.endsWith(".tgz")) {
@@ -396,29 +455,12 @@ private[spark] object Utils extends Logging {
     InetAddress.getByName(address).getHostName
   }
 
-  def localHostPort(conf: SparkConf): String = {
-    val retval = conf.get("spark.hostPort", null)
-    if (retval == null) {
-      logErrorWithStack("spark.hostPort not set but invoking localHostPort")
-      return localHostName()
-    }
-    retval
-  }
-
   def checkHost(host: String, message: String = "") {
     assert(host.indexOf(':') == -1, message)
   }
 
   def checkHostPort(hostPort: String, message: String = "") {
     assert(hostPort.indexOf(':') != -1, message)
-  }
-
-  def logErrorWithStack(msg: String) {
-    try {
-      throw new Exception
-    } catch {
-      case ex: Exception => logError(msg, ex)
-    }
   }
 
   // Typically, this will be of order of number of nodes in cluster
@@ -428,7 +470,7 @@ private[spark] object Utils extends Logging {
   def parseHostPort(hostPort: String): (String,  Int) = {
     {
       // Check cache first.
-      var cached = hostPortParseResults.get(hostPort)
+      val cached = hostPortParseResults.get(hostPort)
       if (cached != null) return cached
     }
 
@@ -495,6 +537,15 @@ private[spark] object Utils extends Logging {
     }
     if (!file.delete()) {
       throw new IOException("Failed to delete: " + file)
+    }
+  }
+  
+  /**
+   * Delete a file or directory and its contents recursively.
+   */
+  def deleteRecursively(dir: TachyonFile, client: TachyonFS) {
+    if (!client.delete(dir.getPath(), true)) {
+      throw new IOException("Failed to delete the tachyon dir: " + dir)
     }
   }
 
@@ -666,7 +717,7 @@ private[spark] object Utils extends Logging {
 
     for (el <- trace) {
       if (!finished) {
-        if (SPARK_CLASS_REGEX.findFirstIn(el.getClassName) != None) {
+        if (SPARK_CLASS_REGEX.findFirstIn(el.getClassName).isDefined) {
           lastSparkMethod = if (el.getMethodName == "<init>") {
             // Spark method is a constructor; get its class name
             el.getClassName.substring(el.getClassName.lastIndexOf('.') + 1)
@@ -731,7 +782,7 @@ private[spark] object Utils extends Logging {
     } catch {
       case ise: IllegalStateException => return true
     }
-    return false
+    false
   }
 
   def isSpace(c: Char): Boolean = {
@@ -748,7 +799,7 @@ private[spark] object Utils extends Logging {
     var inWord = false
     var inSingleQuote = false
     var inDoubleQuote = false
-    var curWord = new StringBuilder
+    val curWord = new StringBuilder
     def endWord() {
       buf += curWord.toString
       curWord.clear()
@@ -794,7 +845,7 @@ private[spark] object Utils extends Logging {
     if (inWord || inDoubleQuote || inSingleQuote) {
       endWord()
     }
-    return buf
+    buf
   }
 
  /* Calculates 'x' modulo 'mod', takes to consideration sign of x,
@@ -822,8 +873,7 @@ private[spark] object Utils extends Logging {
 
   /** Returns a copy of the system properties that is thread-safe to iterator over. */
   def getSystemProperties(): Map[String, String] = {
-    return System.getProperties().clone()
-      .asInstanceOf[java.util.Properties].toMap[String, String]
+    System.getProperties.clone().asInstanceOf[java.util.Properties].toMap[String, String]
   }
 
   /**

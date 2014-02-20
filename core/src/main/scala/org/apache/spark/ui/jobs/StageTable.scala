@@ -48,7 +48,7 @@ private[spark] class StageTable(val stages: Seq[StageInfo], val parent: JobProgr
         {if (isFairScheduler) {<th>Pool Name</th>} else {}}
         <th>Description</th>
         <th>Submitted</th>
-        <th>Task Time</th>
+        <th>Duration</th>
         <th>Tasks: Succeeded/Total</th>
         <th>Shuffle Read</th>
         <th>Shuffle Write</th>
@@ -59,7 +59,8 @@ private[spark] class StageTable(val stages: Seq[StageInfo], val parent: JobProgr
     </table>
   }
 
-  private def makeProgressBar(started: Int, completed: Int, failed: String, total: Int): Seq[Node] = {
+  private def makeProgressBar(started: Int, completed: Int, failed: String, total: Int): Seq[Node] =
+  {
     val completeWidth = "width: %s%%".format((completed.toDouble/total)*100)
     val startWidth = "width: %s%%".format((started.toDouble/total)*100)
 

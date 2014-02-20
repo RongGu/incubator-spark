@@ -43,7 +43,7 @@ object SparkHdfsLR {
     while (i < D) {
       x(i) = tok.nextToken.toDouble; i += 1
     }
-    return DataPoint(new Vector(x), y)
+    DataPoint(new Vector(x), y)
   }
 
   def main(args: Array[String]) {
@@ -56,7 +56,8 @@ object SparkHdfsLR {
     val sc = new SparkContext(args(0), "SparkHdfsLR",
       System.getenv("SPARK_HOME"), SparkContext.jarOfClass(this.getClass), Map(), 
       InputFormatInfo.computePreferredLocations(
-          Seq(new InputFormatInfo(conf, classOf[org.apache.hadoop.mapred.TextInputFormat], inputPath))))
+        Seq(new InputFormatInfo(conf, classOf[org.apache.hadoop.mapred.TextInputFormat], inputPath))
+      ))
     val lines = sc.textFile(inputPath)
     val points = lines.map(parsePoint _).cache()
     val ITERATIONS = args(2).toInt

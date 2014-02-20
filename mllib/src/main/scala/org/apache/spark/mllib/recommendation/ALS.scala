@@ -18,11 +18,12 @@
 package org.apache.spark.mllib.recommendation
 
 import scala.collection.mutable.{ArrayBuffer, BitSet}
+import scala.math.{abs, sqrt}
 import scala.util.Random
 import scala.util.Sorting
 
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.{Logging, HashPartitioner, Partitioner, SparkContext}
+import org.apache.spark.{Logging, HashPartitioner, Partitioner, SparkContext, SparkConf}
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.KryoRegistrator
@@ -83,8 +84,9 @@ case class Rating(val user: Int, val product: Int, val rating: Double)
  * [[http://research.yahoo.com/pub/2433]], adapted for the blocked approach used here.
  *
  * Essentially instead of finding the low-rank approximations to the rating matrix `R`,
- * this finds the approximations for a preference matrix `P` where the elements of `P` are 1 if r > 0
- * and 0 if r = 0. The ratings then act as 'confidence' values related to strength of indicated user
+ * this finds the approximations for a preference matrix `P` where the elements of `P` are 1 if
+ * r > 0 and 0 if r = 0. The ratings then act as 'confidence' values related to strength of
+ * indicated user
  * preferences rather than explicit ratings given to items.
  */
 class ALS private (var numBlocks: Int, var rank: Int, var iterations: Int, var lambda: Double,
@@ -151,8 +153,8 @@ class ALS private (var numBlocks: Int, var rank: Int, var iterations: Int, var l
     val (userInLinks, userOutLinks) = makeLinkRDDs(numBlocks, ratingsByUserBlock)
     val (productInLinks, productOutLinks) = makeLinkRDDs(numBlocks, ratingsByProductBlock)
 
-    // Initialize user and product factors randomly, but use a deterministic seed for each partition
-    // so that fault recovery works
+    // Initialize user and product factors randomly, but use a deterministic seed for each
+    // partition so that fault recovery works
     val seedGen = new Random()
     val seed1 = seedGen.nextInt()
     val seed2 = seedGen.nextInt()
@@ -267,7 +269,8 @@ class ALS private (var numBlocks: Int, var rank: Int, var iterations: Int, var l
       val groupedRatings = blockRatings(productBlock).groupBy(_.product).toArray
       // Sort them by product ID
       val ordering = new Ordering[(Int, ArrayBuffer[Rating])] {
-        def compare(a: (Int, ArrayBuffer[Rating]), b: (Int, ArrayBuffer[Rating])): Int = a._1 - b._1
+        def compare(a: (Int, ArrayBuffer[Rating]), b: (Int, ArrayBuffer[Rating])): Int =
+            a._1 - b._1
       }
       Sorting.quickSort(groupedRatings)(ordering)
       // Translate the user IDs to indices based on userIdToPos
@@ -301,7 +304,14 @@ class ALS private (var numBlocks: Int, var rank: Int, var iterations: Int, var l
    * Make a random factor vector with the given random.
    */
   private def randomFactor(rank: Int, rand: Random): Array[Double] = {
-    Array.fill(rank)(rand.nextDouble)
+    // Choose a unit vector uniformly at random from the unit sphere, but from the
+    // "first quadrant" where all elements are nonnegative. This can be done by choosing
+    // elements distributed as Normal(0,1) and taking the absolute value, and then normalizing.
+    // This appears to create factorizations that have a slightly better reconstruction
+    // (<1%) compared picking elements uniformly at random in [0,1].
+    val factor = Array.fill(rank)(abs(rand.nextGaussian()))
+    val norm = sqrt(factor.map(x => x * x).sum)
+    factor.map(x => x / norm)
   }
 
   /**
@@ -361,7 +371,8 @@ class ALS private (var numBlocks: Int, var rank: Int, var iterations: Int, var l
     val tempXtX = DoubleMatrix.zeros(triangleSize)
     val fullXtX = DoubleMatrix.zeros(rank, rank)
 
-    // Compute the XtX and Xy values for each user by adding products it rated in each product block
+    // Compute the XtX and Xy values for each user by adding products it rated in each product
+    // block
     for (productBlock <- 0 until numBlocks) {
       for (p <- 0 until blockFactors(productBlock).length) {
         val x = new DoubleMatrix(blockFactors(productBlock)(p))
@@ -536,9 +547,8 @@ object ALS {
    * @param iterations number of iterations of ALS (recommended: 10-20)
    * @param lambda     regularization factor (recommended: 0.01)
    */
-  def trainImplicit(ratings: RDD[Rating], rank: Int, iterations: Int, lambda: Double, alpha: Double)
-  : MatrixFactorizationModel =
-  {
+  def trainImplicit(ratings: RDD[Rating], rank: Int, iterations: Int, lambda: Double,
+      alpha: Double): MatrixFactorizationModel = {
     trainImplicit(ratings, rank, iterations, lambda, -1, alpha)
   }
 
@@ -578,12 +588,13 @@ object ALS {
     val implicitPrefs = if (args.length >= 7) args(6).toBoolean else false
     val alpha = if (args.length >= 8) args(7).toDouble else 1
     val blocks = if (args.length == 9) args(8).toInt else -1
-    val sc = new SparkContext(master, "ALS")
-    sc.conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-    sc.conf.set("spark.kryo.registrator",  classOf[ALSRegistrator].getName)
-    sc.conf.set("spark.kryo.referenceTracking", "false")
-    sc.conf.set("spark.kryoserializer.buffer.mb", "8")
-    sc.conf.set("spark.locality.wait", "10000")
+    val conf = new SparkConf()
+      .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      .set("spark.kryo.registrator",  classOf[ALSRegistrator].getName)
+      .set("spark.kryo.referenceTracking", "false")
+      .set("spark.kryoserializer.buffer.mb", "8")
+      .set("spark.locality.wait", "10000")
+    val sc = new SparkContext(master, "ALS", conf)
 
     val ratings = sc.textFile(ratingsFile).map { line =>
       val fields = line.split(',')

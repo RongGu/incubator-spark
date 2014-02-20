@@ -211,7 +211,6 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
             }
             return chunk
           } else {
-            /*logInfo("Finished sending [" + message + "] to [" + getRemoteConnectionManagerId() + "]")*/
             message.finishTime = System.currentTimeMillis
             logDebug("Finished sending [" + message + "] to [" + getRemoteConnectionManagerId() +
               "] in "  + message.timeTaken )
@@ -238,7 +237,7 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
               message.startTime = System.currentTimeMillis
             }
             logTrace(
-              "Sending chunk from [" + message+ "] to [" + getRemoteConnectionManagerId() + "]")
+              "Sending chunk from [" + message + "] to [" + getRemoteConnectionManagerId() + "]")
             return chunk
           } else {
             message.finishTime = System.currentTimeMillis
@@ -330,7 +329,7 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
       // Is highly unlikely unless there was an unclean close of socket, etc
       registerInterest()
       logInfo("Connected to [" + address + "], " + outbox.messages.size + " messages pending")
-      return true
+      true
     } catch {
       case e: Exception => {
         logWarning("Error finishing connection to " + address, e)
@@ -349,8 +348,8 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
             outbox.getChunk() match {
               case Some(chunk) => {
                 val buffers = chunk.buffers
-                // If we have 'seen' pending messages, then reset flag - since we handle that as normal 
-                // registering of event (below)
+                // If we have 'seen' pending messages, then reset flag - since we handle that as
+                // normal registering of event (below)
                 if (needForceReregister && buffers.exists(_.remaining() > 0)) resetForceReregister()
                 currentBuffers ++= buffers
               }
@@ -385,7 +384,7 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
       }
     }
     // should not happen - to keep scala compiler happy
-    return true
+    true
   }
 
   // This is a hack to determine if remote socket was closed or not.
@@ -404,7 +403,8 @@ class SendingConnection(val address: InetSocketAddress, selector_ : Selector,
       }
     } catch {
       case e: Exception =>
-        logError("Exception while reading SendingConnection to " + getRemoteConnectionManagerId(), e)
+        logError("Exception while reading SendingConnection to " + getRemoteConnectionManagerId(),
+          e)
         callOnExceptionCallback(e)
         close()
     }
@@ -559,7 +559,7 @@ private[spark] class ReceivingConnection(channel_ : SocketChannel, selector_ : S
       }
     }
     // should not happen - to keep scala compiler happy
-    return true
+    true
   }
 
   def onReceive(callback: (Connection, Message) => Unit) {onReceiveCallback = callback}

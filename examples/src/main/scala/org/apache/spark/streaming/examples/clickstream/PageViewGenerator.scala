@@ -36,6 +36,7 @@ object PageView extends Serializable {
   }
 }
 
+// scalastyle:off
 /** Generates streaming events to simulate page views on a website.
   *
   * This should be used in tandem with PageViewStream.scala. Example:
@@ -44,7 +45,8 @@ object PageView extends Serializable {
   *
   * When running this, you may want to set the root logging level to ERROR in
   * conf/log4j.properties to reduce the verbosity of the output.
-  * */
+  */
+// scalastyle:on
 object PageViewGenerator {
   val pages = Map("http://foo.com/"        -> .7,
                   "http://foo.com/news"    -> 0.2,
@@ -65,7 +67,7 @@ object PageViewGenerator {
         return item
       }
     }
-    return inputMap.take(1).head._1 // Shouldn't get here if probabilities add up to 1.0
+    inputMap.take(1).head._1 // Shouldn't get here if probabilities add up to 1.0
   }
 
   def getNextClickEvent() : String = {

@@ -36,11 +36,12 @@ import org.apache.spark.storage.{BlockId, StorageLevel, StreamBlockId}
 import org.apache.spark.streaming.scheduler.{DeregisterReceiver, AddBlocks, RegisterReceiver}
 
 /**
- * Abstract class for defining any InputDStream that has to start a receiver on worker
- * nodes to receive external data. Specific implementations of NetworkInputDStream must
+ * Abstract class for defining any [[org.apache.spark.streaming.dstream.InputDStream]]
+ * that has to start a receiver on worker nodes to receive external data.
+ * Specific implementations of NetworkInputDStream must
  * define the getReceiver() function that gets the receiver object of type
- * [[org.apache.spark.streaming.dstream.NetworkReceiver]] that will be sent to the workers to receive
- * data.
+ * [[org.apache.spark.streaming.dstream.NetworkReceiver]] that will be sent
+ * to the workers to receive data.
  * @param ssc_ Streaming context that will execute this input stream
  * @tparam T Class type of the object of this stream
  */
@@ -68,7 +69,7 @@ abstract class NetworkInputDStream[T: ClassTag](@transient ssc_ : StreamingConte
     // then this returns an empty RDD. This may happen when recovering from a
     // master failure
     if (validTime >= graph.startTime) {
-      val blockIds = ssc.networkInputTracker.getBlockIds(id, validTime)
+      val blockIds = ssc.scheduler.networkInputTracker.getBlockIds(id, validTime)
       Some(new BlockRDD[T](ssc.sc, blockIds))
     } else {
       Some(new BlockRDD[T](ssc.sc, Array[BlockId]()))
@@ -79,7 +80,8 @@ abstract class NetworkInputDStream[T: ClassTag](@transient ssc_ : StreamingConte
 
 private[streaming] sealed trait NetworkReceiverMessage
 private[streaming] case class StopReceiver(msg: String) extends NetworkReceiverMessage
-private[streaming] case class ReportBlock(blockId: BlockId, metadata: Any) extends NetworkReceiverMessage
+private[streaming] case class ReportBlock(blockId: BlockId, metadata: Any)
+  extends NetworkReceiverMessage
 private[streaming] case class ReportError(msg: String) extends NetworkReceiverMessage
 
 /**
@@ -201,8 +203,8 @@ abstract class NetworkReceiver[T: ClassTag]() extends Serializable with Logging 
   }
 
   /**
-   * Batches objects created by a [[org.apache.spark.streaming.dstream.NetworkReceiver]] and puts them into
-   * appropriately named blocks at regular intervals. This class starts two threads,
+   * Batches objects created by a [[org.apache.spark.streaming.dstream.NetworkReceiver]] and puts
+   * them into appropriately named blocks at regular intervals. This class starts two threads,
    * one to periodically start a new batch and prepare the previous batch of as a block,
    * the other to push the blocks into the block manager.
    */

@@ -40,6 +40,14 @@ object ExecutorExitCode {
 
   /** DiskStore failed to create a local temporary directory after many attempts. */
   val DISK_STORE_FAILED_TO_CREATE_DIR = 53
+  
+  /** TachyonStore failed to create a local temporary directory after many attempts. */
+  val TACHYON_STORE_FAILED_TO_INITIALIZE = 54
+  
+  /** TachyonStore failed to create a local temporary directory after many attempts. */
+  val TACHYON_STORE_FAILED_TO_CREATE_DIR = 55
+  
+  
 
   def explainExitCode(exitCode: Int): String = {
     exitCode match {
@@ -50,10 +58,11 @@ object ExecutorExitCode {
         "Failed to create local directory (bad spark.local.dir?)"
       case _ => 
         "Unknown executor exit code (" + exitCode + ")" + (
-          if (exitCode > 128)
+          if (exitCode > 128) {
             " (died from signal " + (exitCode - 128) + "?)"
-          else
+          } else {
             ""
+          }
         )
     }
   }

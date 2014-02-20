@@ -32,13 +32,14 @@ import org.apache.spark.storage.{StorageLevel, TaskResultBlockId}
 import org.apache.spark.util.Utils
 
 /**
- * Spark executor used with Mesos and the standalone scheduler.
+ * Spark executor used with Mesos, YARN, and the standalone scheduler.
  */
 private[spark] class Executor(
     executorId: String,
     slaveHostname: String,
     properties: Seq[(String, String)],
-    isLocal: Boolean = false)
+    isLocal: Boolean = false,
+    appId: String = null)
   extends Logging
 {
   // Application dependencies (added through SparkContext) that we've fetched so far on this node.
@@ -57,7 +58,7 @@ private[spark] class Executor(
   Utils.setCustomHostname(slaveHostname)
 
   // Set spark.* properties from executor arg
-  val conf = new SparkConf(false)
+  val conf = new SparkConf(true)
   conf.setAll(properties)
 
   // If we are in yarn mode, systems can have different disk layouts so we must set it
@@ -108,7 +109,7 @@ private[spark] class Executor(
   private val env = {
     if (!isLocal) {
       val _env = SparkEnv.create(conf, executorId, slaveHostname, 0,
-        isDriver = false, isLocal = false)
+        isDriver = false, isLocal = false, appId)
       SparkEnv.set(_env)
       _env.metricsSystem.registerSource(executorSource)
       _env
@@ -205,7 +206,7 @@ private[spark] class Executor(
         }
 
         attemptedTask = Some(task)
-        logDebug("Task " + taskId +"'s epoch is " + task.epoch)
+        logDebug("Task " + taskId + "'s epoch is " + task.epoch)
         env.mapOutputTracker.updateEpoch(task.epoch)
 
         // Run the actual task and measure its runtime.
@@ -233,7 +234,8 @@ private[spark] class Executor(
 
         val accumUpdates = Accumulators.values
 
-        val directResult = new DirectTaskResult(valueBytes, accumUpdates, task.metrics.getOrElse(null))
+        val directResult = new DirectTaskResult(valueBytes, accumUpdates,
+          task.metrics.getOrElse(null))
         val serializedDirectResult = ser.serialize(directResult)
         logInfo("Serialized size of result for " + taskId + " is " + serializedDirectResult.limit)
         val serializedResult = {
@@ -279,6 +281,11 @@ private[spark] class Executor(
           //System.exit(1)
         }
       } finally {
+        // TODO: Unregister shuffle memory only for ResultTask
+        val shuffleMemoryMap = env.shuffleMemoryMap
+        shuffleMemoryMap.synchronized {
+          shuffleMemoryMap.remove(Thread.currentThread().getId)
+        }
         runningTasks.remove(taskId)
       }
     }

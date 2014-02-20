@@ -54,7 +54,10 @@ class BlockManagerMaster(var driverActor : ActorRef, conf: SparkConf) extends Lo
 
   /** Register the BlockManager's id with the driver. */
   def registerBlockManager(
-      blockManagerId: BlockManagerId, maxMemSize: Long, slaveActor: ActorRef) {
+      blockManagerId: BlockManagerId, 
+      maxMemSize: Long,
+      slaveActor: ActorRef) {
+    
     logInfo("Trying to register BlockManager")
     tell(RegisterBlockManager(blockManagerId, maxMemSize, slaveActor))
     logInfo("Registered BlockManager")
@@ -65,9 +68,11 @@ class BlockManagerMaster(var driverActor : ActorRef, conf: SparkConf) extends Lo
       blockId: BlockId,
       storageLevel: StorageLevel,
       memSize: Long,
-      diskSize: Long): Boolean = {
+      diskSize: Long,
+      tachyonSize: Long): Boolean = {
+    
     val res = askDriverWithReply[Boolean](
-      UpdateBlockInfo(blockManagerId, blockId, storageLevel, memSize, diskSize))
+      UpdateBlockInfo(blockManagerId, blockId, storageLevel, memSize, diskSize, tachyonSize))
     logInfo("Updated info of block " + blockId)
     res
   }

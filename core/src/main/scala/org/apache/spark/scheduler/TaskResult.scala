@@ -35,7 +35,8 @@ case class IndirectTaskResult[T](blockId: BlockId) extends TaskResult[T] with Se
 
 /** A TaskResult that contains the task's return value and accumulator updates. */
 private[spark]
-class DirectTaskResult[T](var valueBytes: ByteBuffer, var accumUpdates: Map[Long, Any], var metrics: TaskMetrics)
+class DirectTaskResult[T](var valueBytes: ByteBuffer, var accumUpdates: Map[Long, Any],
+    var metrics: TaskMetrics)
   extends TaskResult[T] with Externalizable {
 
   def this() = this(null.asInstanceOf[ByteBuffer], null, null)
@@ -74,6 +75,6 @@ class DirectTaskResult[T](var valueBytes: ByteBuffer, var accumUpdates: Map[Long
 
   def value(): T = {
     val resultSer = SparkEnv.get.serializer.newInstance()
-    return resultSer.deserialize(valueBytes)
+    resultSer.deserialize(valueBytes)
   }
 }

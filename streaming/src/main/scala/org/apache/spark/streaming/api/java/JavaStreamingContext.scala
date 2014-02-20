@@ -22,7 +22,6 @@ import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
 
 import java.io.InputStream
-import java.lang.{Integer => JInt}
 import java.util.{List => JList, Map => JMap}
 
 import akka.actor.{Props, SupervisorStrategy}
@@ -35,21 +34,24 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.streaming._
 import org.apache.spark.streaming.scheduler.StreamingListener
+import org.apache.hadoop.conf.Configuration
+import org.apache.spark.streaming.dstream.DStream
 
 /**
- * A StreamingContext is the main entry point for Spark Streaming functionality. Besides the basic
- * information (such as, cluster URL and job name) to internally create a SparkContext, it provides
- * methods used to create DStream from various input sources.
+ * A Java-friendly version of [[org.apache.spark.streaming.StreamingContext]] which is the main
+ * entry point for Spark Streaming functionality. It provides methods to create
+ * [[org.apache.spark.streaming.api.java.JavaDStream]] and
+ * [[org.apache.spark.streaming.api.java.JavaPairDStream.]] from input sources. The internal
+ * org.apache.spark.api.java.JavaSparkContext (see core Spark documentation) can be accessed
+ * using `context.sparkContext`. After creating and transforming DStreams, the streaming
+ * computation can be started and stopped using `context.start()` and `context.stop()`,
+ * respectively. `context.awaitTransformation()` allows the current thread to wait for the
+ * termination of a context by `stop()` or by an exception.
  */
 class JavaStreamingContext(val ssc: StreamingContext) {
 
-  // TODOs:
-  // - Test to/from Hadoop functions
-  // - Support creating and registering InputStreams
-
-
   /**
-   * Creates a StreamingContext.
+   * Create a StreamingContext.
    * @param master Name of the Spark Master
    * @param appName Name to be used when registering with the scheduler
    * @param batchDuration The time interval at which streaming data will be divided into batches
@@ -58,13 +60,13 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(master, appName, batchDuration, null, Nil, Map()))
 
   /**
-   * Creates a StreamingContext.
+   * Create a StreamingContext.
    * @param master Name of the Spark Master
    * @param appName Name to be used when registering with the scheduler
    * @param batchDuration The time interval at which streaming data will be divided into batches
    * @param sparkHome The SPARK_HOME directory on the slave nodes
-   * @param jarFile JAR file containing job code, to ship to cluster. This can be a path on the local
-   *                file system or an HDFS, HTTP, HTTPS, or FTP URL.
+   * @param jarFile JAR file containing job code, to ship to cluster. This can be a path on the
+   *                local file system or an HDFS, HTTP, HTTPS, or FTP URL.
    */
   def this(
       master: String,
@@ -75,7 +77,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(master, appName, batchDuration, sparkHome, Seq(jarFile), Map()))
 
   /**
-   * Creates a StreamingContext.
+   * Create a StreamingContext.
    * @param master Name of the Spark Master
    * @param appName Name to be used when registering with the scheduler
    * @param batchDuration The time interval at which streaming data will be divided into batches
@@ -92,7 +94,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(master, appName, batchDuration, sparkHome, jars, Map()))
 
   /**
-   * Creates a StreamingContext.
+   * Create a StreamingContext.
    * @param master Name of the Spark Master
    * @param appName Name to be used when registering with the scheduler
    * @param batchDuration The time interval at which streaming data will be divided into batches
@@ -111,7 +113,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(master, appName, batchDuration, sparkHome, jars, environment))
 
   /**
-   * Creates a StreamingContext using an existing SparkContext.
+   * Create a JavaStreamingContext using an existing JavaSparkContext.
    * @param sparkContext The underlying JavaSparkContext to use
    * @param batchDuration The time interval at which streaming data will be divided into batches
    */
@@ -119,7 +121,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(sparkContext.sc, batchDuration))
 
   /**
-   * Creates a StreamingContext using an existing SparkContext.
+   * Create a JavaStreamingContext using a SparkConf configuration.
    * @param conf A Spark application configuration
    * @param batchDuration The time interval at which streaming data will be divided into batches
    */
@@ -127,23 +129,31 @@ class JavaStreamingContext(val ssc: StreamingContext) {
     this(new StreamingContext(conf, batchDuration))
 
   /**
-   * Re-creates a StreamingContext from a checkpoint file.
-   * @param path Path either to the directory that was specified as the checkpoint directory, or
-   *             to the checkpoint file 'graph' or 'graph.bk'.
+   * Recreate a JavaStreamingContext from a checkpoint file.
+   * @param path Path to the directory that was specified as the checkpoint directory
    */
-  def this(path: String) = this (new StreamingContext(path))
-
-  /** The underlying SparkContext */
-  val sc: JavaSparkContext = new JavaSparkContext(ssc.sc)
+  def this(path: String) = this(new StreamingContext(path, new Configuration))
 
   /**
-   * Create a input stream from network source hostname:port. Data is received using
+   * Re-creates a JavaStreamingContext from a checkpoint file.
+   * @param path Path to the directory that was specified as the checkpoint directory
+   *
+   */
+  def this(path: String, hadoopConf: Configuration) = this(new StreamingContext(path, hadoopConf))
+
+  @deprecated("use sparkContext", "0.9.0")
+  val sc: JavaSparkContext = sparkContext
+
+  /** The underlying SparkContext */
+  val sparkContext = new JavaSparkContext(ssc.sc)
+
+  /**
+   * Create an input stream from network source hostname:port. Data is received using
    * a TCP socket and the receive bytes is interpreted as UTF8 encoded \n delimited
    * lines.
    * @param hostname      Hostname to connect to for receiving data
    * @param port          Port to connect to for receiving data
    * @param storageLevel  Storage level to use for storing the received objects
-   *                      (default: StorageLevel.MEMORY_AND_DISK_SER_2)
    */
   def socketTextStream(hostname: String, port: Int, storageLevel: StorageLevel)
   : JavaDStream[String] = {
@@ -151,9 +161,9 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream from network source hostname:port. Data is received using
+   * Create an input stream from network source hostname:port. Data is received using
    * a TCP socket and the receive bytes is interpreted as UTF8 encoded \n delimited
-   * lines.
+   * lines. Storage level of the data will be the default StorageLevel.MEMORY_AND_DISK_SER_2.
    * @param hostname      Hostname to connect to for receiving data
    * @param port          Port to connect to for receiving data
    */
@@ -162,7 +172,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream from network source hostname:port. Data is received using
+   * Create an input stream from network source hostname:port. Data is received using
    * a TCP socket and the receive bytes it interepreted as object using the given
    * converter.
    * @param hostname      Hostname to connect to for receiving data
@@ -184,7 +194,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream that monitors a Hadoop-compatible filesystem
+   * Create an input stream that monitors a Hadoop-compatible filesystem
    * for new files and reads them as text files (using key as LongWritable, value
    * as Text and input format as TextInputFormat). Files must be written to the
    * monitored directory by "moving" them from another location within the same
@@ -196,7 +206,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream from network source hostname:port, where data is received
+   * Create an input stream from network source hostname:port, where data is received
    * as serialized blocks (serialized using the Spark's serializer) that can be directly
    * pushed into the block manager without deserializing them. This is the most efficient
    * way to receive data.
@@ -215,7 +225,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream from network source hostname:port, where data is received
+   * Create an input stream from network source hostname:port, where data is received
    * as serialized blocks (serialized using the Spark's serializer) that can be directly
    * pushed into the block manager without deserializing them. This is the most efficient
    * way to receive data.
@@ -230,7 +240,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Create a input stream that monitors a Hadoop-compatible filesystem
+   * Create an input stream that monitors a Hadoop-compatible filesystem
    * for new files and reads them using the given key-value types and input format.
    * Files must be written to the monitored directory by "moving" them from another
    * location within the same file system. File names starting with . are ignored.
@@ -294,6 +304,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
 
   /**
    * Create an input stream with any arbitrary user implemented actor receiver.
+   * Storage level of the data will be the default StorageLevel.MEMORY_AND_DISK_SER_2.
    * @param props Props object defining creation of the actor
    * @param name Name of the actor
    *
@@ -312,14 +323,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Registers an output stream that will be computed every interval
-   */
-  def registerOutputStream(outputStream: JavaDStreamLike[_, _, _]) {
-    ssc.registerOutputStream(outputStream.dstream)
-  }
-
-  /**
-   * Creates a input stream from an queue of RDDs. In each batch,
+   * Creates an input stream from an queue of RDDs. In each batch,
    * it will process either one or all of the RDDs returned by the queue.
    *
    * NOTE: changes to the queue after the stream is created will not be recognized.
@@ -335,7 +339,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Creates a input stream from an queue of RDDs. In each batch,
+   * Creates an input stream from an queue of RDDs. In each batch,
    * it will process either one or all of the RDDs returned by the queue.
    *
    * NOTE: changes to the queue after the stream is created will not be recognized.
@@ -352,7 +356,7 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Creates a input stream from an queue of RDDs. In each batch,
+   * Creates an input stream from an queue of RDDs. In each batch,
    * it will process either one or all of the RDDs returned by the queue.
    *
    * NOTE: changes to the queue after the stream is created will not be recognized.
@@ -471,20 +475,116 @@ class JavaStreamingContext(val ssc: StreamingContext) {
   }
 
   /**
-   * Starts the execution of the streams.
+   * Start the execution of the streams.
    */
   def start() = ssc.start()
 
   /**
-   * Sstops the execution of the streams.
+   * Wait for the execution to stop. Any exceptions that occurs during the execution
+   * will be thrown in this thread.
+   */
+  def awaitTermination() = ssc.awaitTermination()
+
+  /**
+   * Wait for the execution to stop. Any exceptions that occurs during the execution
+   * will be thrown in this thread.
+   * @param timeout time to wait in milliseconds
+   */
+  def awaitTermination(timeout: Long) = ssc.awaitTermination(timeout)
+
+  /**
+   * Stop the execution of the streams. Will stop the associated JavaSparkContext as well.
    */
   def stop() = ssc.stop()
+
+  /**
+   * Stop the execution of the streams.
+   * @param stopSparkContext Stop the associated SparkContext or not
+   */
+  def stop(stopSparkContext: Boolean) = ssc.stop(stopSparkContext)
 }
 
+/**
+ * JavaStreamingContext object contains a number of utility functions.
+ */
 object JavaStreamingContext {
+
+  /**
+   * Either recreate a StreamingContext from checkpoint data or create a new StreamingContext.
+   * If checkpoint data exists in the provided `checkpointPath`, then StreamingContext will be
+   * recreated from the checkpoint data. If the data does not exist, then the provided factory
+   * will be used to create a JavaStreamingContext.
+   *
+   * @param checkpointPath Checkpoint directory used in an earlier JavaStreamingContext program
+   * @param factory        JavaStreamingContextFactory object to create a new JavaStreamingContext
+   */
+  def getOrCreate(
+      checkpointPath: String,
+      factory: JavaStreamingContextFactory
+    ): JavaStreamingContext = {
+    val ssc = StreamingContext.getOrCreate(checkpointPath, () => {
+      factory.create.ssc
+    })
+    new JavaStreamingContext(ssc)
+  }
+
+  /**
+   * Either recreate a StreamingContext from checkpoint data or create a new StreamingContext.
+   * If checkpoint data exists in the provided `checkpointPath`, then StreamingContext will be
+   * recreated from the checkpoint data. If the data does not exist, then the provided factory
+   * will be used to create a JavaStreamingContext.
+   *
+   * @param checkpointPath Checkpoint directory used in an earlier StreamingContext program
+   * @param factory        JavaStreamingContextFactory object to create a new JavaStreamingContext
+   * @param hadoopConf     Hadoop configuration if necessary for reading from any HDFS compatible
+   *                       file system
+   */
+  def getOrCreate(
+      checkpointPath: String,
+      hadoopConf: Configuration,
+      factory: JavaStreamingContextFactory
+    ): JavaStreamingContext = {
+    val ssc = StreamingContext.getOrCreate(checkpointPath, () => {
+      factory.create.ssc
+    }, hadoopConf)
+    new JavaStreamingContext(ssc)
+  }
+
+  /**
+   * Either recreate a StreamingContext from checkpoint data or create a new StreamingContext.
+   * If checkpoint data exists in the provided `checkpointPath`, then StreamingContext will be
+   * recreated from the checkpoint data. If the data does not exist, then the provided factory
+   * will be used to create a JavaStreamingContext.
+   *
+   * @param checkpointPath Checkpoint directory used in an earlier StreamingContext program
+   * @param factory        JavaStreamingContextFactory object to create a new JavaStreamingContext
+   * @param hadoopConf     Hadoop configuration if necessary for reading from any HDFS compatible
+   *                       file system
+   * @param createOnError  Whether to create a new JavaStreamingContext if there is an
+   *                       error in reading checkpoint data.
+   */
+  def getOrCreate(
+      checkpointPath: String,
+      hadoopConf: Configuration,
+      factory: JavaStreamingContextFactory,
+      createOnError: Boolean
+    ): JavaStreamingContext = {
+    val ssc = StreamingContext.getOrCreate(checkpointPath, () => {
+      factory.create.ssc
+    }, hadoopConf, createOnError)
+    new JavaStreamingContext(ssc)
+  }
+
   /**
    * Find the JAR from which a given class was loaded, to make it easy for users to pass
-   * their JARs to SparkContext.
+   * their JARs to StreamingContext.
    */
   def jarOfClass(cls: Class[_]) = SparkContext.jarOfClass(cls).toArray
+}
+
+/**
+ * Factory interface for creating a new JavaStreamingContext
+ */
+trait JavaStreamingContextFactory {
+  def create(): JavaStreamingContext
 }

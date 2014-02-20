@@ -120,7 +120,8 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, actorSystem: A
         sender ! true
 
       case DisassociatedEvent(_, address, _) =>
-        addressToExecutorId.get(address).foreach(removeExecutor(_, "remote Akka client disassociated"))
+        addressToExecutorId.get(address).foreach(removeExecutor(_,
+          "remote Akka client disassociated"))
 
     }
 
@@ -165,7 +166,7 @@ class CoarseGrainedSchedulerBackend(scheduler: TaskSchedulerImpl, actorSystem: A
   override def start() {
     val properties = new ArrayBuffer[(String, String)]
     for ((key, value) <- scheduler.sc.conf.getAll) {
-      if (key.startsWith("spark.") && !key.equals("spark.hostPort")) {
+      if (key.startsWith("spark.")) {
         properties += ((key, value))
       }
     }

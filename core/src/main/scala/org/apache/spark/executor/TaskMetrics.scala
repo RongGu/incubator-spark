@@ -49,12 +49,23 @@ class TaskMetrics extends Serializable {
   var resultSerializationTime: Long = _
 
   /**
+   * The number of in-memory bytes spilled by this task
+   */
+  var memoryBytesSpilled: Long = _
+
+  /**
+   * The number of on-disk bytes spilled by this task
+   */
+  var diskBytesSpilled: Long = _
+
+  /**
    * If this task reads from shuffle output, metrics on getting shuffle data will be collected here
    */
   var shuffleReadMetrics: Option[ShuffleReadMetrics] = None
 
   /**
-   * If this task writes to shuffle output, metrics on the written shuffle data will be collected here
+   * If this task writes to shuffle output, metrics on the written shuffle data will be collected
+   * here
    */
   var shuffleWriteMetrics: Option[ShuffleWriteMetrics] = None
 }

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+
 package org.apache.spark
 
 import scala.collection.mutable
@@ -33,14 +34,15 @@ import org.apache.spark.api.python.PythonWorkerFactory
 import com.google.common.collect.MapMaker
 
 /**
- * Holds all the runtime environment objects for a running Spark instance (either master or worker),
- * including the serializer, Akka actor system, block manager, map output tracker, etc. Currently
- * Spark code finds the SparkEnv through a thread-local variable, so each thread that accesses these
- * objects needs to have the right SparkEnv set. You can get the current environment with
- * SparkEnv.get (e.g. after creating a SparkContext) and set it with SparkEnv.set.
- */
+* Holds all the runtime environment objects for a running Spark instance (either master or worker),
+* including the serializer, Akka actor system, block manager, map output tracker, etc. Currently
+* Spark code finds the SparkEnv through a thread-local variable, so each thread that accesses these
+* objects needs to have the right SparkEnv set. You can get the current environment with
+* SparkEnv.get (e.g. after creating a SparkContext) and set it with SparkEnv.set.
+*/
 class SparkEnv private[spark] (
     val executorId: String,
+    val appId: String,
     val actorSystem: ActorSystem,
     val serializerManager: SerializerManager,
     val serializer: Serializer,
@@ -54,7 +56,11 @@ class SparkEnv private[spark] (
     val httpFileServer: HttpFileServer,
     val sparkFilesDir: String,
     val metricsSystem: MetricsSystem,
-    val conf: SparkConf) {
+    val conf: SparkConf) extends Logging {
+
+  // A mapping of thread ID to amount of memory used for shuffle in bytes
+  // All accesses should be manually synchronized
+  val shuffleMemoryMap = mutable.HashMap[Long, Long]()
 
   private val pythonWorkers = mutable.HashMap[(String, Map[String, String]), PythonWorkerFactory]()
 
@@ -92,7 +98,7 @@ object SparkEnv extends Logging {
   @volatile private var lastSetSparkEnv : SparkEnv = _
 
   def set(e: SparkEnv) {
-	  lastSetSparkEnv = e
+    lastSetSparkEnv = e
     env.set(e)
   }
 
@@ -108,7 +114,7 @@ object SparkEnv extends Logging {
    * Returns the ThreadLocal SparkEnv.
    */
   def getThreadLocal: SparkEnv = {
-	  env.get()
+    env.get()
   }
 
   private[spark] def create(
@@ -117,7 +123,8 @@ object SparkEnv extends Logging {
       hostname: String,
       port: Int,
       isDriver: Boolean,
-      isLocal: Boolean): SparkEnv = {
+      isLocal: Boolean,
+      appId: String = null): SparkEnv = {
 
     val (actorSystem, boundPort) = AkkaUtils.createActorSystem("spark", hostname, port,
       conf = conf)
@@ -125,17 +132,7 @@ object SparkEnv extends Logging {
     // Bit of a hack: If this is the driver and our port was 0 (meaning bind to any free port),
     // figure out which port number Akka actually bound to and set spark.driver.port to it.
     if (isDriver && port == 0) {
-      conf.set("spark.driver.port",  boundPort.toString)
-    }
-
-    // set only if unset until now.
-    if (!conf.contains("spark.hostPort")) {
-      if (!isDriver){
-        // unexpected
-        Utils.logErrorWithStack("Unexpected NOT to have spark.hostPort set")
-      }
-      Utils.checkHost(hostname)
-      conf.set("spark.hostPort",  hostname + ":" + boundPort)
+      conf.set("spark.driver.port", boundPort.toString)
     }
 
     val classLoader = Thread.currentThread.getContextClassLoader
@@ -143,7 +140,7 @@ object SparkEnv extends Logging {
     // Create an instance of the class named by the given Java system property, or by
     // defaultClassName if the property is not set, and return it as a T
     def instantiateClass[T](propertyName: String, defaultClassName: String): T = {
-      val name = conf.get(propertyName,  defaultClassName)
+      val name = conf.get(propertyName, defaultClassName)
       Class.forName(name, true, classLoader).newInstance().asInstanceOf[T]
     }
 
@@ -174,7 +171,8 @@ object SparkEnv extends Logging {
     val blockManagerMaster = new BlockManagerMaster(registerOrLookup(
       "BlockManagerMaster",
       new BlockManagerMasterActor(isLocal, conf)), conf)
-    val blockManager = new BlockManager(executorId, actorSystem, blockManagerMaster, serializer, conf)
+    val blockManager = new BlockManager(executorId, actorSystem, blockManagerMaster, 
+      serializer, conf, appId)
 
     val connectionManager = blockManager.connectionManager
 
@@ -184,7 +182,7 @@ object SparkEnv extends Logging {
 
     // Have to assign trackerActor after initialization as MapOutputTrackerActor
     // requires the MapOutputTracker itself
-    val mapOutputTracker =  if (isDriver) {
+    val mapOutputTracker = if (isDriver) {
       new MapOutputTrackerMaster(conf)
     } else {
       new MapOutputTracker(conf)
@@ -198,7 +196,7 @@ object SparkEnv extends Logging {
 
     val httpFileServer = new HttpFileServer()
     httpFileServer.initialize()
-    conf.set("spark.fileserver.uri",  httpFileServer.serverUri)
+    conf.set("spark.fileserver.uri", httpFileServer.serverUri)
 
     val metricsSystem = if (isDriver) {
       MetricsSystem.createMetricsSystem("driver", conf)
@@ -207,7 +205,7 @@ object SparkEnv extends Logging {
     }
     metricsSystem.start()
 
-    // Set the sparkFiles directory, used when downloading dependencies.  In local mode,
+    // Set the sparkFiles directory, used when downloading dependencies. In local mode,
     // this is a temporary directory; in distributed mode, this is the executor's current working
     // directory.
     val sparkFilesDir: String = if (isDriver) {
@@ -224,6 +222,7 @@ object SparkEnv extends Logging {
 
     new SparkEnv(
       executorId,
+      appId,
       actorSystem,
       serializerManager,
       serializer,

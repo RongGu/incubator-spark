@@ -106,7 +106,7 @@ class DAGScheduler(
   // The time, in millis, to wait for fetch failure events to stop coming in after one is detected;
   // this is a simplistic way to avoid resubmitting tasks in the non-fetchable map stage one by one
   // as more failure events come in
-  val RESUBMIT_TIMEOUT = 50.milliseconds
+  val RESUBMIT_TIMEOUT = 200.milliseconds
 
   // The time, in millis, to wake up between polls of the completion queue in order to potentially
   // resubmit failed stages
@@ -133,7 +133,8 @@ class DAGScheduler(
 
   private[spark] val stageToInfos = new TimeStampedHashMap[Stage, StageInfo]
 
-  private[spark] val listenerBus = new SparkListenerBus()
+  // An async scheduler event bus. The bus should be stopped when DAGSCheduler is stopped.
+  private[spark] val listenerBus = new SparkListenerBus
 
   // Contains the locations that each RDD's partitions are cached on
   private val cacheLocs = new HashMap[Int, Array[Seq[TaskLocation]]]
@@ -154,7 +155,6 @@ class DAGScheduler(
   val failed = new HashSet[Stage]  // Stages that must be resubmitted due to fetch failures
   // Missing tasks from each stage
   val pendingTasks = new TimeStampedHashMap[Stage, HashSet[Task[_]]]
-  var lastFetchFailureTime: Long = 0  // Used to wait a bit to avoid repeated resubmits
 
   val activeJobs = new HashSet[ActiveJob]
   val resultStageToJob = new HashMap[Stage, ActiveJob]
@@ -176,27 +176,11 @@ class DAGScheduler(
   def start() {
     eventProcessActor = env.actorSystem.actorOf(Props(new Actor {
       /**
-       * A handle to the periodical task, used to cancel the task when the actor is stopped.
-       */
-      var resubmissionTask: Cancellable = _
-
-      override def preStart() {
-        import context.dispatcher
-        /**
-         * A message is sent to the actor itself periodically to remind the actor to resubmit failed
-         * stages.  In this way, stage resubmission can be done within the same thread context of
-         * other event processing logic to avoid unnecessary synchronization overhead.
-         */
-        resubmissionTask = context.system.scheduler.schedule(
-          RESUBMIT_TIMEOUT, RESUBMIT_TIMEOUT, self, ResubmitFailedStages)
-      }
-
-      /**
        * The main event loop of the DAG scheduler.
        */
       def receive = {
         case event: DAGSchedulerEvent =>
-          logDebug("Got event of type " + event.getClass.getName)
+          logTrace("Got event of type " + event.getClass.getName)
 
           /**
            * All events are forwarded to `processEvent()`, so that the event processing logic can
@@ -206,7 +190,6 @@ class DAGScheduler(
           if (!processEvent(event)) {
             submitWaitingStages()
           } else {
-            resubmissionTask.cancel()
             context.stop(self)
           }
       }
@@ -619,6 +602,8 @@ class DAGScheduler(
 
       case ResubmitFailedStages =>
         if (failed.size > 0) {
+          // Failed stages may be removed by job cancellation, so failed might be empty even if
+          // the ResubmitFailedStages event has been scheduled.
           resubmitFailedStages()
         }
 
@@ -876,7 +861,7 @@ class DAGScheduler(
               logInfo("running: " + running)
               logInfo("waiting: " + waiting)
               logInfo("failed: " + failed)
-              if (stage.shuffleDep != None) {
+              if (stage.shuffleDep.isDefined) {
                 // We supply true to increment the epoch number here in case this is a
                 // recomputation of the map outputs. In that case, some nodes may have cached
                 // locations with holes (from when we detected the error) and will need the
@@ -925,7 +910,6 @@ class DAGScheduler(
         // Mark the stage that the reducer was in as unrunnable
         val failedStage = stageIdToStage(task.stageId)
         running -= failedStage
-        failed += failedStage
         // TODO: Cancel running tasks in the stage
         logInfo("Marking " + failedStage + " (" + failedStage.name +
           ") for resubmision due to a fetch failure")
@@ -937,10 +921,16 @@ class DAGScheduler(
         }
         logInfo("The failed fetch was from " + mapStage + " (" + mapStage.name +
           "); marking it for resubmission")
+        if (failed.isEmpty && eventProcessActor != null) {
+          // Don't schedule an event to resubmit failed stages if failed isn't empty, because
+          // in that case the event will already have been scheduled. eventProcessActor may be
+          // null during unit tests.
+          import env.actorSystem.dispatcher
+          env.actorSystem.scheduler.scheduleOnce(
+            RESUBMIT_TIMEOUT, eventProcessActor, ResubmitFailedStages)
+        }
+        failed += failedStage
         failed += mapStage
-        // Remember that a fetch failed now; this is used to resubmit the broken
-        // stages later, after a small wait (to give other tasks the chance to fail)
-        lastFetchFailureTime = System.currentTimeMillis() // TODO: Use pluggable clock
         // TODO: mark the executor as failed only if there were lots of fetch failures on it
         if (bmAddress != null) {
           handleExecutorLost(bmAddress.executorId, Some(task.epoch))
@@ -953,8 +943,8 @@ class DAGScheduler(
         // Do nothing here; the TaskScheduler handles these failures and resubmits the task.
 
       case other =>
-        // Unrecognized failure - abort all jobs depending on this stage
-        abortStage(stageIdToStage(task.stageId), task + " failed: " + other)
+        // Unrecognized failure - also do nothing. If the task fails repeatedly, the TaskScheduler
+        // will abort the job.
     }
   }
 
@@ -1092,8 +1082,9 @@ class DAGScheduler(
       case n: NarrowDependency[_] =>
         for (inPart <- n.getParents(partition)) {
           val locs = getPreferredLocs(n.rdd, inPart)
-          if (locs != Nil)
+          if (locs != Nil) {
             return locs
+          }
         }
       case _ =>
     }
@@ -1121,5 +1112,6 @@ class DAGScheduler(
     }
     metadataCleaner.cancel()
     taskSched.stop()
+    listenerBus.stop()
   }
 }

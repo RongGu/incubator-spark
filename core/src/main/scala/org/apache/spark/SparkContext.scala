@@ -63,9 +63,9 @@ import org.apache.spark.util.{Utils, TimeStampedHashMap, MetadataCleaner, Metada
  */
 class SparkContext(
     config: SparkConf,
-    // This is used only by YARN for now, but should be relevant to other cluster types (Mesos, etc)
-    // too. This is typically generated from InputFormatInfo.computePreferredLocations. It contains
-    // a map from hostname to a list of input format splits on the host.
+    // This is used only by YARN for now, but should be relevant to other cluster types (Mesos,
+    // etc) too. This is typically generated from InputFormatInfo.computePreferredLocations. It
+    // contains a map from hostname to a list of input format splits on the host.
     val preferredNodeLocationData: Map[String, Set[SplitInfo]] = Map())
   extends Logging {
 
@@ -142,7 +142,8 @@ class SparkContext(
     conf.get("spark.driver.host"),
     conf.get("spark.driver.port").toInt,
     isDriver = true,
-    isLocal = isLocal)
+    isLocal = isLocal,
+    "<driver>" + appName)
   SparkEnv.set(env)
 
   // Used to store a URL for each static file/jar together with the file's local timestamp
@@ -340,14 +341,25 @@ class SparkContext(
    * Hadoop-supported file system URI, and return it as an RDD of Strings.
    */
   def textFile(path: String, minSplits: Int = defaultMinSplits): RDD[String] = {
-    hadoopFile(path, classOf[TextInputFormat], classOf[LongWritable], classOf[Text], minSplits)
-      .map(pair => pair._2.toString)
+    hadoopFile(path, classOf[TextInputFormat], classOf[LongWritable], classOf[Text],
+      minSplits).map(pair => pair._2.toString)
   }
 
   /**
-   * Get an RDD for a Hadoop-readable dataset from a Hadoop JobConf given its InputFormat and any
-   * other necessary info (e.g. file name for a filesystem-based dataset, table name for HyperTable,
-   * etc).
+   * Get an RDD for a Hadoop-readable dataset from a Hadoop JobConf given its InputFormat and other
+   * necessary info (e.g. file name for a filesystem-based dataset, table name for HyperTable),
+   * using the older MapReduce API (`org.apache.hadoop.mapred`).
+   *
+   * @param conf JobConf for setting up the dataset
+   * @param inputFormatClass Class of the [[InputFormat]]
+   * @param keyClass Class of the keys
+   * @param valueClass Class of the values
+   * @param minSplits Minimum number of Hadoop Splits to generate.
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
   def hadoopRDD[K, V](
       conf: JobConf,
@@ -361,7 +373,13 @@ class SparkContext(
     new HadoopRDD(this, conf, inputFormatClass, keyClass, valueClass, minSplits)
   }
 
-  /** Get an RDD for a Hadoop file with an arbitrary InputFormat */
+  /** Get an RDD for a Hadoop file with an arbitrary InputFormat
+    *
+    * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+    * record, directly caching the returned RDD will create many references to the same object.
+    * If you plan to directly cache Hadoop writable objects, you should first copy them using
+    * a `map` function.
+    * */
   def hadoopFile[K, V](
       path: String,
       inputFormatClass: Class[_ <: InputFormat[K, V]],
@@ -389,15 +407,20 @@ class SparkContext(
    * {{{
    * val file = sparkContext.hadoopFile[LongWritable, Text, TextInputFormat](path, minSplits)
    * }}}
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
-  def hadoopFile[K, V, F <: InputFormat[K, V]](path: String, minSplits: Int)
-      (implicit km: ClassTag[K], vm: ClassTag[V], fm: ClassTag[F])
-      : RDD[(K, V)] = {
+  def hadoopFile[K, V, F <: InputFormat[K, V]]
+      (path: String, minSplits: Int)
+      (implicit km: ClassTag[K], vm: ClassTag[V], fm: ClassTag[F]): RDD[(K, V)] = {
     hadoopFile(path,
-        fm.runtimeClass.asInstanceOf[Class[F]],
-        km.runtimeClass.asInstanceOf[Class[K]],
-        vm.runtimeClass.asInstanceOf[Class[V]],
-        minSplits)
+      fm.runtimeClass.asInstanceOf[Class[F]],
+      km.runtimeClass.asInstanceOf[Class[K]],
+      vm.runtimeClass.asInstanceOf[Class[V]],
+      minSplits)
   }
 
   /**
@@ -407,24 +430,35 @@ class SparkContext(
    * {{{
    * val file = sparkContext.hadoopFile[LongWritable, Text, TextInputFormat](path)
    * }}}
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
   def hadoopFile[K, V, F <: InputFormat[K, V]](path: String)
       (implicit km: ClassTag[K], vm: ClassTag[V], fm: ClassTag[F]): RDD[(K, V)] =
     hadoopFile[K, V, F](path, defaultMinSplits)
 
   /** Get an RDD for a Hadoop file with an arbitrary new API InputFormat. */
-  def newAPIHadoopFile[K, V, F <: NewInputFormat[K, V]](path: String)
+  def newAPIHadoopFile[K, V, F <: NewInputFormat[K, V]]
+      (path: String)
       (implicit km: ClassTag[K], vm: ClassTag[V], fm: ClassTag[F]): RDD[(K, V)] = {
     newAPIHadoopFile(
-        path,
-        fm.runtimeClass.asInstanceOf[Class[F]],
-        km.runtimeClass.asInstanceOf[Class[K]],
-        vm.runtimeClass.asInstanceOf[Class[V]])
+      path,
+      fm.runtimeClass.asInstanceOf[Class[F]],
+      km.runtimeClass.asInstanceOf[Class[K]],
+      vm.runtimeClass.asInstanceOf[Class[V]])
   }
 
   /**
    * Get an RDD for a given Hadoop file with an arbitrary new API InputFormat
    * and extra configuration options to pass to the input format.
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
   def newAPIHadoopFile[K, V, F <: NewInputFormat[K, V]](
       path: String,
@@ -441,6 +475,11 @@ class SparkContext(
   /**
    * Get an RDD for a given Hadoop file with an arbitrary new API InputFormat
    * and extra configuration options to pass to the input format.
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
   def newAPIHadoopRDD[K, V, F <: NewInputFormat[K, V]](
       conf: Configuration = hadoopConfiguration,
@@ -450,7 +489,13 @@ class SparkContext(
     new NewHadoopRDD(this, fClass, kClass, vClass, conf)
   }
 
-  /** Get an RDD for a Hadoop SequenceFile with given key and value types. */
+  /** Get an RDD for a Hadoop SequenceFile with given key and value types.
+    *
+    * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+    * record, directly caching the returned RDD will create many references to the same object.
+    * If you plan to directly cache Hadoop writable objects, you should first copy them using
+    * a `map` function.
+    */
   def sequenceFile[K, V](path: String,
       keyClass: Class[K],
       valueClass: Class[V],
@@ -460,8 +505,15 @@ class SparkContext(
     hadoopFile(path, inputFormatClass, keyClass, valueClass, minSplits)
   }
 
-  /** Get an RDD for a Hadoop SequenceFile with given key and value types. */
-  def sequenceFile[K, V](path: String, keyClass: Class[K], valueClass: Class[V]): RDD[(K, V)] =
+  /** Get an RDD for a Hadoop SequenceFile with given key and value types.
+    *
+    * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+    * record, directly caching the returned RDD will create many references to the same object.
+    * If you plan to directly cache Hadoop writable objects, you should first copy them using
+    * a `map` function.
+    * */
+  def sequenceFile[K, V](path: String, keyClass: Class[K], valueClass: Class[V]
+      ): RDD[(K, V)] =
     sequenceFile(path, keyClass, valueClass, defaultMinSplits)
 
   /**
@@ -479,10 +531,16 @@ class SparkContext(
    * have a parameterized singleton object). We use functions instead to create a new converter
    * for the appropriate type. In addition, we pass the converter a ClassTag of its type to
    * allow it to figure out the Writable class to use in the subclass case.
+   *
+   * '''Note:''' Because Hadoop's RecordReader class re-uses the same Writable object for each
+   * record, directly caching the returned RDD will create many references to the same object.
+   * If you plan to directly cache Hadoop writable objects, you should first copy them using
+   * a `map` function.
    */
-   def sequenceFile[K, V](path: String, minSplits: Int = defaultMinSplits)
-      (implicit km: ClassTag[K], vm: ClassTag[V],
-          kcf: () => WritableConverter[K], vcf: () => WritableConverter[V])
+   def sequenceFile[K, V]
+       (path: String, minSplits: Int = defaultMinSplits)
+       (implicit km: ClassTag[K], vm: ClassTag[V],
+        kcf: () => WritableConverter[K], vcf: () => WritableConverter[V])
       : RDD[(K, V)] = {
     val kc = kcf()
     val vc = vcf()
@@ -490,15 +548,16 @@ class SparkContext(
     val writables = hadoopFile(path, format,
         kc.writableClass(km).asInstanceOf[Class[Writable]],
         vc.writableClass(vm).asInstanceOf[Class[Writable]], minSplits)
-    writables.map{case (k,v) => (kc.convert(k), vc.convert(v))}
+    writables.map { case (k, v) => (kc.convert(k), vc.convert(v)) }
   }
 
   /**
    * Load an RDD saved as a SequenceFile containing serialized objects, with NullWritable keys and
-   * BytesWritable values that contain a serialized partition. This is still an experimental storage
-   * format and may not be supported exactly as is in future Spark releases. It will also be pretty
-   * slow if you use the default serializer (Java serialization), though the nice thing about it is
-   * that there's very little effort required to save arbitrary objects.
+   * BytesWritable values that contain a serialized partition. This is still an experimental
+   * storage format and may not be supported exactly as is in future Spark releases. It will also
+   * be pretty slow if you use the default serializer (Java serialization),
+   * though the nice thing about it is that there's very little effort required to save arbitrary
+   * objects.
    */
   def objectFile[T: ClassTag](
       path: String,
@@ -677,17 +736,20 @@ class SparkContext(
         key = uri.getScheme match {
           // A JAR file which exists only on the driver node
           case null | "file" =>
-            if (SparkHadoopUtil.get.isYarnMode()) {
-              // In order for this to work on yarn the user must specify the --addjars option to
-              // the client to upload the file into the distributed cache to make it show up in the
-              // current working directory.
+            if (SparkHadoopUtil.get.isYarnMode() && master == "yarn-standalone") {
+              // In order for this to work in yarn standalone mode the user must specify the 
+              // --addjars option to the client to upload the file into the distributed cache 
+              // of the AM to make it show up in the current working directory.
               val fileName = new Path(uri.getPath).getName()
               try {
                 env.httpFileServer.addJar(new File(fileName))
               } catch {
                 case e: Exception => {
+                  // For now just log an error but allow to go through so spark examples work.
+                  // The spark examples don't really need the jar distributed since its also 
+                  // the app jar.
                   logError("Error adding jar (" + e + "), was the --addJars option used?")
-                  throw e
+                  null
                 }
               }
             } else {
@@ -700,8 +762,10 @@ class SparkContext(
             path
         }
       }
-      addedJars(key) = System.currentTimeMillis
-      logInfo("Added JAR " + path + " at " + key + " with timestamp " + addedJars(key))
+      if (key != null) {
+        addedJars(key) = System.currentTimeMillis
+        logInfo("Added JAR " + path + " at " + key + " with timestamp " + addedJars(key))
+      }
     }
   }
 
@@ -764,8 +828,11 @@ class SparkContext(
 
   private[spark] def getCallSite(): String = {
     val callSite = getLocalProperty("externalCallSite")
-    if (callSite == null) return Utils.formatSparkCallSite
-    callSite
+    if (callSite == null) {
+      Utils.formatSparkCallSite
+    } else {
+      callSite
+    }
   }
 
   /**
@@ -915,7 +982,7 @@ class SparkContext(
    */
   private[spark] def clean[F <: AnyRef](f: F): F = {
     ClosureCleaner.clean(f)
-    return f
+    f
   }
 
   /**
@@ -927,9 +994,11 @@ class SparkContext(
       val path = new Path(dir, UUID.randomUUID().toString)
       val fs = path.getFileSystem(hadoopConfiguration)
       fs.mkdirs(path)
-      fs.getFileStatus(path).getPath().toString
+      fs.getFileStatus(path).getPath.toString
     }
   }
+
+  def getCheckpointDir = checkpointDir
 
   /** Default level of parallelism to use when not given by user (e.g. parallelize and makeRDD). */
   def defaultParallelism: Int = taskScheduler.defaultParallelism
@@ -976,7 +1045,7 @@ object SparkContext {
 
   implicit object LongAccumulatorParam extends AccumulatorParam[Long] {
     def addInPlace(t1: Long, t2: Long) = t1 + t2
-    def zero(initialValue: Long) = 0l
+    def zero(initialValue: Long) = 0L
   }
 
   implicit object FloatAccumulatorParam extends AccumulatorParam[Float] {
@@ -992,7 +1061,7 @@ object SparkContext {
   implicit def rddToAsyncRDDActions[T: ClassTag](rdd: RDD[T]) = new AsyncRDDActions(rdd)
 
   implicit def rddToSequenceFileRDDFunctions[K <% Writable: ClassTag, V <% Writable: ClassTag](
-      rdd: RDD[(K, V)]) =
+      rdd: RDD[(K, V)])   =
     new SequenceFileRDDFunctions(rdd)
 
   implicit def rddToOrderedRDDFunctions[K <% Ordered[K]: ClassTag, V: ClassTag](
@@ -1042,7 +1111,8 @@ object SparkContext {
 
   implicit def floatWritableConverter() = simpleWritableConverter[Float, FloatWritable](_.get)
 
-  implicit def booleanWritableConverter() = simpleWritableConverter[Boolean, BooleanWritable](_.get)
+  implicit def booleanWritableConverter() =
+    simpleWritableConverter[Boolean, BooleanWritable](_.get)
 
   implicit def bytesWritableConverter() = {
     simpleWritableConverter[Array[Byte], BytesWritable](_.getBytes)
@@ -1086,7 +1156,7 @@ object SparkContext {
    * parameters that are passed as the default value of null, instead of throwing an exception
    * like SparkConf would.
    */
-  private def updatedConf(
+  private[spark] def updatedConf(
       conf: SparkConf,
       master: String,
       appName: String,
@@ -1100,7 +1170,7 @@ object SparkContext {
     if (sparkHome != null) {
       res.setSparkHome(sparkHome)
     }
-    if (!jars.isEmpty) {
+    if (jars != null && !jars.isEmpty) {
       res.setJars(jars)
     }
     res.setExecutorEnv(environment.toSeq)
@@ -1191,7 +1261,8 @@ object SparkContext {
 
       case "yarn-client" =>
         val scheduler = try {
-          val clazz = Class.forName("org.apache.spark.scheduler.cluster.YarnClientClusterScheduler")
+          val clazz =
+            Class.forName("org.apache.spark.scheduler.cluster.YarnClientClusterScheduler")
           val cons = clazz.getConstructor(classOf[SparkContext])
           cons.newInstance(sc).asInstanceOf[TaskSchedulerImpl]
 
@@ -1202,7 +1273,8 @@ object SparkContext {
         }
 
         val backend = try {
-          val clazz = Class.forName("org.apache.spark.scheduler.cluster.YarnClientSchedulerBackend")
+          val clazz =
+            Class.forName("org.apache.spark.scheduler.cluster.YarnClientSchedulerBackend")
           val cons = clazz.getConstructor(classOf[TaskSchedulerImpl], classOf[SparkContext])
           cons.newInstance(scheduler, sc).asInstanceOf[CoarseGrainedSchedulerBackend]
         } catch {

@@ -31,14 +31,14 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
   private val loading = new HashSet[RDDBlockId]()
 
   /** Gets or computes an RDD split. Used by RDD.iterator() when an RDD is cached. */
-  def getOrCompute[T](rdd: RDD[T], split: Partition, context: TaskContext, storageLevel: StorageLevel)
-      : Iterator[T] = {
+  def getOrCompute[T](rdd: RDD[T], split: Partition, context: TaskContext,
+      storageLevel: StorageLevel): Iterator[T] = {
     val key = RDDBlockId(rdd.id, split.index)
     logDebug("Looking for partition " + key)
     blockManager.get(key) match {
       case Some(values) =>
         // Partition is already materialized, so just return its values
-        return new InterruptibleIterator(context, values.asInstanceOf[Iterator[T]])
+        new InterruptibleIterator(context, values.asInstanceOf[Iterator[T]])
 
       case None =>
         // Mark the split as loading (unless someone else marks it first)
@@ -74,7 +74,7 @@ private[spark] class CacheManager(blockManager: BlockManager) extends Logging {
           val elements = new ArrayBuffer[Any]
           elements ++= computedValues
           blockManager.put(key, elements, storageLevel, tellMaster = true)
-          return elements.iterator.asInstanceOf[Iterator[T]]
+          elements.iterator.asInstanceOf[Iterator[T]]
         } finally {
           loading.synchronized {
             loading.remove(key)

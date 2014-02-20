@@ -25,15 +25,15 @@ private[spark]
 case class StorageStatus(blockManagerId: BlockManagerId, maxMem: Long,
   blocks: Map[BlockId, BlockStatus]) {
 
-  def memUsed() = blocks.values.map(_.memSize).reduceOption(_+_).getOrElse(0L)
+  def memUsed() = blocks.values.map(_.memSize).reduceOption(_ + _).getOrElse(0L)
 
   def memUsedByRDD(rddId: Int) =
-    rddBlocks.filterKeys(_.rddId == rddId).values.map(_.memSize).reduceOption(_+_).getOrElse(0L)
+    rddBlocks.filterKeys(_.rddId == rddId).values.map(_.memSize).reduceOption(_ + _).getOrElse(0L)
 
-  def diskUsed() = blocks.values.map(_.diskSize).reduceOption(_+_).getOrElse(0L)
+  def diskUsed() = blocks.values.map(_.diskSize).reduceOption(_ + _).getOrElse(0L)
 
   def diskUsedByRDD(rddId: Int) =
-    rddBlocks.filterKeys(_.rddId == rddId).values.map(_.diskSize).reduceOption(_+_).getOrElse(0L)
+    rddBlocks.filterKeys(_.rddId == rddId).values.map(_.diskSize).reduceOption(_ + _).getOrElse(0L)
 
   def memRemaining : Long = maxMem - memUsed()
 
@@ -44,12 +44,14 @@ case class StorageStatus(blockManagerId: BlockManagerId, maxMem: Long,
 }
 
 case class RDDInfo(id: Int, name: String, storageLevel: StorageLevel,
-  numCachedPartitions: Int, numPartitions: Int, memSize: Long, diskSize: Long)
+  numCachedPartitions: Int, numPartitions: Int, memSize: Long, tachyonSize: Long, diskSize: Long)
   extends Ordered[RDDInfo] {
   override def toString = {
     import Utils.bytesToString
-    "RDD \"%s\" (%d) Storage: %s; CachedPartitions: %d; TotalPartitions: %d; MemorySize: %s; DiskSize: %s".format(name, id,
-      storageLevel.toString, numCachedPartitions, numPartitions, bytesToString(memSize), bytesToString(diskSize))
+    "RDD \"%s\" (%d) Storage: %s; CachedPartitions: %d; TotalPartitions: %d; MemorySize: %s;" + 
+    "TachyonSize: %s; DiskSize: %s".format(
+        name, id, storageLevel.toString, numCachedPartitions, numPartitions, 
+        bytesToString(memSize), bytesToString(tachyonSize), bytesToString(diskSize))
   }
 
   override def compare(that: RDDInfo) = {
@@ -64,7 +66,8 @@ object StorageUtils {
   /* Returns RDD-level information, compiled from a list of StorageStatus objects */
   def rddInfoFromStorageStatus(storageStatusList: Seq[StorageStatus],
     sc: SparkContext) : Array[RDDInfo] = {
-    rddInfoFromBlockStatusList(storageStatusList.flatMap(_.rddBlocks).toMap[RDDBlockId, BlockStatus], sc)
+    rddInfoFromBlockStatusList(
+      storageStatusList.flatMap(_.rddBlocks).toMap[RDDBlockId, BlockStatus], sc)
   }
 
   /* Returns a map of blocks to their locations, compiled from a list of StorageStatus objects */
@@ -85,13 +88,21 @@ object StorageUtils {
     val rddInfos = groupedRddBlocks.map { case (rddId, rddBlocks) =>
       // Add up memory and disk sizes
       val memSize = rddBlocks.map(_.memSize).reduce(_ + _)
+      val tachyonSize = rddBlocks.map(_.tachyonSize).reduce(_ + _)
       val diskSize = rddBlocks.map(_.diskSize).reduce(_ + _)
 
       // Get the friendly name and storage level for the RDD, if available
       sc.persistentRdds.get(rddId).map { r =>
         val rddName = Option(r.name).getOrElse(rddId.toString)
         val rddStorageLevel = r.getStorageLevel
-        RDDInfo(rddId, rddName, rddStorageLevel, rddBlocks.length, r.partitions.size, memSize, diskSize)
+        RDDInfo(rddId, 
+          rddName, 
+          rddStorageLevel, 
+          rddBlocks.length, 
+          r.partitions.size, 
+          memSize, 
+          tachyonSize, 
+          diskSize)
       }
     }.flatten.toArray
 

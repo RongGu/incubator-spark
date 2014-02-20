@@ -18,8 +18,8 @@ Spark provides three locations to configure the system:
 Spark properties control most application settings and are configured separately for each application.
 The preferred way to set them is by passing a [SparkConf](api/core/index.html#org.apache.spark.SparkConf)
 class to your SparkContext constructor.
-Alternatively, Spark will also load them from Java system properties (for compatibility with old versions
-of Spark) and from a [`spark.conf` file](#configuration-files) on your classpath.
+Alternatively, Spark will also load them from Java system properties, for compatibility with old versions
+of Spark.
 
 SparkConf lets you configure most of the common properties to initialize a cluster (e.g., master URL and
 application name), as well as arbitrary key-value pairs through the `set()` method. For example, we could
@@ -98,17 +98,28 @@ Apart from these, the following properties are also available, and may be useful
   <td>spark.default.parallelism</td>
   <td>8</td>
   <td>
-    Default number of tasks to use for distributed shuffle operations (<code>groupByKey</code>,
+    Default number of tasks to use across the cluster for distributed shuffle operations (<code>groupByKey</code>,
     <code>reduceByKey</code>, etc) when not set by user.
   </td>
 </tr>
 <tr>
   <td>spark.storage.memoryFraction</td>
-  <td>0.66</td>
+  <td>0.6</td>
   <td>
     Fraction of Java heap to use for Spark's memory cache. This should not be larger than the "old"
-    generation of objects in the JVM, which by default is given 2/3 of the heap, but you can increase
+    generation of objects in the JVM, which by default is given 0.6 of the heap, but you can increase
     it if you configure your own old generation size.
+  </td>
+</tr>
+<tr>
+  <td>spark.shuffle.memoryFraction</td>
+  <td>0.3</td>
+  <td>
+    Fraction of Java heap to use for aggregation and cogroups during shuffles, if
+    <code>spark.shuffle.spill</code> is true. At any given time, the collective size of
+    all in-memory maps used for shuffles is bounded by this limit, beyond which the contents will
+    begin to spill to disk. If spills are often, consider increasing this value at the expense of
+    <code>spark.storage.memoryFraction</code>.
   </td>
 </tr>
 <tr>
@@ -141,6 +152,13 @@ Apart from these, the following properties are also available, and may be useful
   <td>true</td>
   <td>
     Whether to compress map output files. Generally a good idea.
+  </td>
+</tr>
+<tr>
+  <td>spark.shuffle.spill.compress</td>
+  <td>true</td>
+  <td>
+    Whether to compress data spilled during shuffles.
   </td>
 </tr>
 <tr>
@@ -342,7 +360,16 @@ Apart from these, the following properties are also available, and may be useful
   <td>spark.streaming.blockInterval</td>
   <td>200</td>
   <td>
-    Duration (milliseconds) of how long to batch new objects coming from network receivers.
+    Duration (milliseconds) of how long to batch new objects coming from network receivers used
+    in Spark Streaming.
+  </td>
+</tr>
+<tr>
+  <td>spark.streaming.unpersist</td>
+  <td>false</td>
+  <td>
+    Force RDDs generated and persisted by Spark Streaming to be automatically unpersisted from
+    Spark's memory. Setting this to true is likely to reduce Spark's RDD memory usage.
   </td>
 </tr>
 <tr>
@@ -361,19 +388,28 @@ Apart from these, the following properties are also available, and may be useful
     Too large a value decreases parallelism during broadcast (makes it slower); however, if it is too small, <code>BlockManager</code> might take a performance hit.
   </td>
 </tr>
-<tr>
-  <td>akka.x.y....</td>
-  <td>value</td>
-  <td>
-    An arbitrary akka configuration can be set directly on spark conf and it is applied for all the ActorSystems created spark wide for that SparkContext and its assigned executors as well.
-  </td>
-</tr>
 
 <tr>
   <td>spark.shuffle.consolidateFiles</td>
-  <td>true</td>
+  <td>false</td>
   <td>
     If set to "true", consolidates intermediate files created during a shuffle. Creating fewer files can improve filesystem performance for shuffles with large numbers of reduce tasks. It is recommended to set this to "true" when using ext4 or xfs filesystems. On ext3, this option might degrade performance on machines with many (>8) cores due to filesystem limitations.
+  </td>
+</tr>
+<tr>
+  <td>spark.shuffle.file.buffer.kb</td>
+  <td>100</td>
+  <td>
+    Size of the in-memory buffer for each shuffle file output stream, in kilobytes. These buffers
+    reduce the number of disk seeks and system calls made in creating intermediate shuffle files.
+  </td>
+</tr>
+<tr>
+  <td>spark.shuffle.spill</td>
+  <td>true</td>
+  <td>
+    If set to "true", limits the amount of memory used during reduces by spilling data out to disk. This spilling
+    threshold is specified by <code>spark.shuffle.memoryFraction</code>.
   </td>
 </tr>
 <tr>
@@ -433,6 +469,13 @@ Apart from these, the following properties are also available, and may be useful
     the whole cluster by default. <br/>
     <b>Note:</b> this setting needs to be configured in the standalone cluster master, not in individual
     applications; you can set it through <code>SPARK_JAVA_OPTS</code> in <code>spark-env.sh</code>.
+</td>
+</tr>
+<tr>
+  <td>spark.files.overwrite</td>
+  <td>false</td>
+  <td>
+    Whether to overwrite files added through SparkContext.addFile() when the target file exists and its contents do not match those of the source.
   </td>
 </tr>
 </table>
@@ -441,30 +484,6 @@ Apart from these, the following properties are also available, and may be useful
 
 The application web UI at `http://<driver>:4040` lists Spark properties in the "Environment" tab.
 This is a useful place to check to make sure that your properties have been set correctly.
-
-## Configuration Files
-
-You can also configure Spark properties through a `spark.conf` file on your Java classpath.
-Because these properties are usually application-specific, we recommend putting this fine *only* on your
-application's classpath, and not in a global Spark classpath.
-
-The `spark.conf` file uses Typesafe Config's [HOCON format](https://github.com/typesafehub/config#json-superset),
-which is a superset of Java properties files and JSON. For example, the following is a simple config file:
-
-{% highlight awk %}
-# Comments are allowed
-spark.executor.memory = 512m
-spark.serializer = org.apache.spark.serializer.KryoSerializer
-{% endhighlight %}
-
-The format also allows hierarchical nesting, as follows:
-
-{% highlight awk %}
-spark.akka {
-  threads = 8
-  timeout = 200
-}
-{% endhighlight %}
 
 # Environment Variables
 

@@ -88,22 +88,22 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
     val aggregator = new Aggregator[K, V, C](createCombiner, mergeValue, mergeCombiners)
     if (self.partitioner == Some(partitioner)) {
       self.mapPartitionsWithContext((context, iter) => {
-        new InterruptibleIterator(context, aggregator.combineValuesByKey(iter))
+        new InterruptibleIterator(context, aggregator.combineValuesByKey(iter, context))
       }, preservesPartitioning = true)
     } else if (mapSideCombine) {
-      val combined = self.mapPartitions(aggregator.combineValuesByKey, preservesPartitioning = true)
+      val combined = self.mapPartitionsWithContext((context, iter) => {
+        aggregator.combineValuesByKey(iter, context)
+      }, preservesPartitioning = true)
       val partitioned = new ShuffledRDD[K, C, (K, C)](combined, partitioner)
         .setSerializer(serializerClass)
       partitioned.mapPartitionsWithContext((context, iter) => {
-        new InterruptibleIterator(context, aggregator.combineCombinersByKey(iter))
+        new InterruptibleIterator(context, aggregator.combineCombinersByKey(iter, context))
       }, preservesPartitioning = true)
     } else {
       // Don't apply map-side combiner.
-      // A sanity check to make sure mergeCombiners is not defined.
-      assert(mergeCombiners == null)
       val values = new ShuffledRDD[K, V, (K, V)](self, partitioner).setSerializer(serializerClass)
       values.mapPartitionsWithContext((context, iter) => {
-        new InterruptibleIterator(context, aggregator.combineValuesByKey(iter))
+        new InterruptibleIterator(context, aggregator.combineValuesByKey(iter, context))
       }, preservesPartitioning = true)
     }
   }
@@ -267,8 +267,9 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
     // into a hash table, leading to more objects in the old gen.
     def createCombiner(v: V) = ArrayBuffer(v)
     def mergeValue(buf: ArrayBuffer[V], v: V) = buf += v
+    def mergeCombiners(c1: ArrayBuffer[V], c2: ArrayBuffer[V]) = c1 ++ c2
     val bufs = combineByKey[ArrayBuffer[V]](
-      createCombiner _, mergeValue _, null, partitioner, mapSideCombine=false)
+      createCombiner _, mergeValue _, mergeCombiners _, partitioner, mapSideCombine=false)
     bufs.asInstanceOf[RDD[(K, Seq[V])]]
   }
 
@@ -287,7 +288,7 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
     if (getKeyClass().isArray && partitioner.isInstanceOf[HashPartitioner]) {
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
-    new ShuffledRDD[K, V, (K, V)](self, partitioner)
+    if (self.partitioner == partitioner) self else new ShuffledRDD[K, V, (K, V)](self, partitioner)
   }
 
   /**
@@ -339,7 +340,7 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
    * existing partitioner/parallelism level.
    */
   def combineByKey[C](createCombiner: V => C, mergeValue: (C, V) => C, mergeCombiners: (C, C) => C)
-      : RDD[(K, C)] = {
+    : RDD[(K, C)] = {
     combineByKey(createCombiner, mergeValue, mergeCombiners, defaultPartitioner(self))
   }
 
@@ -457,8 +458,7 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
     val cg = new CoGroupedRDD[K](Seq(self, other), partitioner)
-    val prfs = new PairRDDFunctions[K, Seq[Seq[_]]](cg)(classTag[K], ClassTags.seqSeqClassTag)
-    prfs.mapValues { case Seq(vs, ws) =>
+    cg.mapValues { case Seq(vs, ws) =>
       (vs.asInstanceOf[Seq[V]], ws.asInstanceOf[Seq[W]])
     }
   }
@@ -473,8 +473,7 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
       throw new SparkException("Default partitioner cannot partition array keys.")
     }
     val cg = new CoGroupedRDD[K](Seq(self, other1, other2), partitioner)
-    val prfs = new PairRDDFunctions[K, Seq[Seq[_]]](cg)(classTag[K], ClassTags.seqSeqClassTag)
-    prfs.mapValues { case Seq(vs, w1s, w2s) =>
+    cg.mapValues { case Seq(vs, w1s, w2s) =>
       (vs.asInstanceOf[Seq[V]], w1s.asInstanceOf[Seq[W1]], w2s.asInstanceOf[Seq[W2]])
     }
   }
@@ -706,7 +705,7 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
     }
 
     logDebug("Saving as hadoop file of type (" + keyClass.getSimpleName + ", " +
-      valueClass.getSimpleName+ ")")
+      valueClass.getSimpleName + ")")
 
     val writer = new SparkHadoopWriter(conf)
     writer.preSetup()
@@ -747,8 +746,4 @@ class PairRDDFunctions[K: ClassTag, V: ClassTag](self: RDD[(K, V)])
   private[spark] def getKeyClass() = implicitly[ClassTag[K]].runtimeClass
 
   private[spark] def getValueClass() = implicitly[ClassTag[V]].runtimeClass
-}
-
-private[spark] object ClassTags {
-  val seqSeqClassTag = classTag[Seq[Seq[_]]]
 }
